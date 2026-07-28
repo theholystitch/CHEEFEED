@@ -96,14 +96,15 @@ async def process_and_translate_with_openrouter(raw_text, source_hint="رسان�
         return None
 
     prompt = (
-        "تو ادمین یک کانال تلگرامی داغ و جنجالی هستی.\n"
-        "این خبر انگلیسی رو بخون و فقط و فقط لبّ مطلب و عصاره اصلی خبر رو به زبان فارسی روان، ۱۰۰٪ محاوره‌ای (با شکسته‌نویسی خیابانی/تلگرامی) خلاصه و ترجمه کن.\n\n"
-        f"متن خبر: \"{raw_text}\"\n\n"
+        "تو مترجم و ویراستار حرفه‌ای اخبار سیاسی هستی.\n"
+        "این خبر انگلیسی را با دقت کامل بخوان و عصاره و مفهوم دقیق آن را به فارسی روان، دقیق و ۱۰۰٪ محاوره‌ای (با شکسته‌نویسی طبیعی تلگرامی) خلاصه و ترجمه کن.\n\n"
+        f"متن خبر اصلی: \"{raw_text}\"\n\n"
         "قوانین بسیار مهم:\n"
-        "۱. تمام کلمات کتابی و رسمی رو حذف کن (مثلاً به جای «ایالات متحده بیان نمود» بگو «آمریکا گفت»، یا به جای «می‌نمایند» بگو «می‌کنن»).\n"
-        "۲. فقط لبّ مطلب خبر در ۱ جمله بسیار کوتاه و جذاب.\n"
-        f"۳. حتماً در انتهای جمله دقیقاً بنویس: — به نقل از {source_hint}\n"
-        "۴. هیچ ایموجی اضافه نکن."
+        "۱. به هیچ وجه نام اشخاص، کشورها یا مفاهیم سیاسی را جابه‌جا یا اشتباه ترجمه نکن.\n"
+        "۲. هیچ کلمه یا اصطلاح کتابی و رسمی به کار نبر (همه چیز به زبان گفتاری و راحت باشد).\n"
+        "۳. خروجی فقط و فقط در قالب ۱ جمله کوتاه، جذاب و کلیدی باشد.\n"
+        f"۴. در انتهای جمله حتماً دقیقاً این عبارت درج شود: — به نقل از {source_hint}\n"
+        "۵. هیچ‌گونه ایموجی در متن قرار نده."
     )
 
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -115,16 +116,16 @@ async def process_and_translate_with_openrouter(raw_text, source_hint="رسان�
     }
     
     payload = {
-        "model": "inclusionai/ling-3.0-flash:free",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
         "messages": [
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.5
+        "temperature": 0.3
     }
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            print("🔄 Requesting translation from OpenRouter (Ling-3.0-Flash)...")
+            print("🔄 Requesting translation from OpenRouter (Llama 3.3 70B Free)...")
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 200:
                 data = response.json()
