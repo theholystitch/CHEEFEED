@@ -1,3 +1,6 @@
+
+
+
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -96,7 +99,7 @@ def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌ها")
         return f"{raw_text} — به نقل از {source_hint}"
 
     prompt = (
-        "تو ادمین یک کانال تلگرامی پرمخاطب، جنجالی، روانی و به‌روز هستی.\n"
+        "تو ادمین یک کانال تلگرامی پرمخاطب، جنجالی و به‌روز هستی.\n"
         "وظیفه داری این خبر رو بازنویسی کنی تا کاملاً لحن گفتاری، عامیانه، محاوره‌ای و جذاب تلگرامی به خودش بگیره.\n\n"
         f"متن خبر خام: \"{raw_text}\"\n\n"
         "قوانین بسیار مهم:\n"
@@ -107,18 +110,32 @@ def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌ها")
         "۴. هیچ ایموجی یا علامت اضافه‌ای نذار."
     )
 
+    models_to_try = [
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-1.5-pro'
+    ]
+
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=prompt,
-        )
-        if response and response.text:
-            cleaned_text = response.text.strip().replace('"', '')
-            print(f"✨ Gemini Output: {cleaned_text}")
-            return cleaned_text
+        
+        for model_name in models_to_try:
+            try:
+                print(f"🔄 Trying model: {model_name}...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    cleaned_text = response.text.strip().replace('"', '')
+                    print(f"✨ Gemini Output ({model_name}): {cleaned_text}")
+                    return cleaned_text
+            except Exception as model_err:
+                print(f"⚠️ Model {model_name} failed: {model_err}")
+                continue
+
     except Exception as e:
-        print(f"❌ Gemini API Error: {e}")
+        print(f"❌ Gemini Client Error: {e}")
 
     return f"{raw_text} — به نقل از {source_hint}"
 
