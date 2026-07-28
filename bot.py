@@ -10,11 +10,10 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, urlparse, quote
-from google import genai
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 CHANNELS = [
     "MTProtoProxies",
@@ -91,9 +90,9 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-async def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های بین‌المللی"):
-    if not GEMINI_API_KEY:
-        print("⚠️ GEMINI_API_KEY is missing!")
+async def process_and_translate_with_openrouter(raw_text, source_hint="رسانه‌های بین‌المللی"):
+    if not OPENROUTER_API_KEY:
+        print("⚠️ OPENROUTER_API_KEY is missing!")
         return None
 
     prompt = (
@@ -107,35 +106,35 @@ async def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌
         "۴. هیچ ایموجی اضافه نکن."
     )
 
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        target_model = 'gemini-2.0-flash'
-        
-        for attempt in range(3):
-            try:
-                print(f"🔄 Requesting Gemini translation for top news (Attempt {attempt+1})...")
-                response = client.models.generate_content(
-                    model=target_model,
-                    contents=prompt
-                )
-                if response and response.text:
-                    cleaned_text = response.text.strip().replace('"', '')
-                    print(f"✨ Gemini Output: {cleaned_text}")
-                    return cleaned_text
-            except Exception as e:
-                err_str = str(e)
-                print(f"⚠️ Gemini Model Error: {err_str}")
-                
-                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    wait_match = re.search(r'retry in (\d+\.?\d*)s', err_str)
-                    wait_time = float(wait_match.group(1)) + 1.0 if wait_match else 7.0
-                    print(f"⏳ Rate limit hit. Backing off for {wait_time:.1f} seconds...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    break
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com",
+        "X-Title": "Telegram News Bot"
+    }
+    
+    payload = {
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.5
+    }
 
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            print("🔄 Requesting translation from OpenRouter (Llama 3.3 70B)...")
+            response = await client.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                text = data["choices"][0]["message"]["content"].strip().replace('"', '')
+                print(f"✨ OpenRouter Output: {text}")
+                return text
+            else:
+                print(f"⚠️ OpenRouter Error Status {response.status_code}: {response.text}")
     except Exception as err:
-        print(f"❌ Gemini Client Init Error: {err}")
+        print(f"❌ OpenRouter Request Error: {err}")
 
     return None
 
@@ -253,11 +252,11 @@ async def fetch_all_news_candidates(sent_history):
     # ۳. مرتب‌سازی بر اساس تازه‌ترین تاریخ انتشار
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
 
-    # 🎯 ارسال فقط ۱ خبر (جدیدترین خبر لیست) به Gemini
+    # 🎯 ارسال فقط جدیدترین خبر به OpenRouter
     top_candidate = candidates[0]
     print(f"🔥 Selected Top News from [{top_candidate['source_name']}]: {top_candidate['raw_title'][:60]}...")
 
-    chatty_title = await process_and_translate_with_gemini(
+    chatty_title = await process_and_translate_with_openrouter(
         top_candidate["raw_title"], 
         source_hint=top_candidate["source_name"]
     )
@@ -371,7 +370,7 @@ async def main():
 
     news = await get_latest_important_news()
     if not news:
-        print("⚠️ No valid news translated by Gemini in this run.")
+        print("⚠️ No valid news translated in this run.")
         return
 
     now_tehran = datetime.now(ZoneInfo("Asia/Tehran"))
