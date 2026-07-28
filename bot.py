@@ -1,6 +1,5 @@
 
 
-
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -39,22 +38,27 @@ NITTER_SERVERS = [
     "https://nitter.privacydev.net",
     "https://nitter.freedit.eu"
 ]
-TWITTER_ACCOUNTS = ["clashreport", "Osint613"]
 
+# اکانت‌های معتبر اخبار سیاسی و نظامی بین‌المللی
+TWITTER_ACCOUNTS = ["clashreport", "Osint613", "Faytuks", "WarMonitors"]
+
+# کلمات کلیدی الزامی برای سنجش اخبار سیاسی
 IRAN_KEYWORDS = ["iran", "tehran", "irgc", "iranian", "persian"]
-US_ISRAEL_KEYWORDS = ["israel", "idf", "tel aviv", "us", "usa", "centcom", "pentagon", "american", "washington", "strike", "drone", "missile"]
-
-MARGINAL_RSS_FEEDS = [
-    {"name": "فارس", "url": "https://www.farsnews.ir/rss/social"},
-    {"name": "ایسنا", "url": "https://www.isna.ir/rss/tp/10"},
-    {"name": "ایسنا", "url": "https://www.isna.ir/rss/tp/9"},
-    {"name": "تسنیم", "url": "https://www.tasnimnews.com/fa/rss/feed/0/7/3/"},
-    {"name": "سیتنا", "url": "https://www.citna.ir/rss.xml"},
-    {"name": "ایرنا", "url": "https://www.irna.ir/rss/tp/14"}
+RELATED_KEYWORDS = [
+    "israel", "idf", "tel aviv", "us", "usa", "centcom", "pentagon", 
+    "american", "washington", "strike", "drone", "missile", "nuclear", 
+    "sanctions", "military", "syria", "lebanon", "gaza", "houthis"
 ]
 
-MARGINAL_KEYWORDS = "بازیگر OR سینما OR جنجال OR حوادث OR کشف OR ازدواج OR ززلزله OR دستگیری OR ترامپ OR اینفانتینو OR فیفا"
-NEWS_RSS_URL = f"https://news.google.com/rss/search?q={quote(MARGINAL_KEYWORDS)}&hl=fa&gl=IR&ceid=IR:fa"
+# کلمات ممنوعه برای جلوگیری از ورود اخبار ورزشی یا غیرمرتبط
+EXCLUDE_KEYWORDS = [
+    "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
+    "movie", "wedding", "stadium", "coach", "cup"
+]
+
+# گوگل نیوز بین‌المللی فقط برای اخبار سیاسی و نظامی ایران، آمریکا و اسرائیل
+POLITICAL_SEARCH_QUERY = 'Iran AND (Israel OR "United States" OR US OR military OR nuclear OR strike OR sanctions)'
+NEWS_RSS_URL = f"https://news.google.com/rss/search?q={quote(POLITICAL_SEARCH_QUERY)}&hl=en-US&gl=US&ceid=US:en"
 
 HISTORY_FILE = "sent_news.json"
 
@@ -93,21 +97,22 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌ها"):
+def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های خارجی"):
     if not GEMINI_API_KEY:
-        print("⚠️ Warning: GEMINI_API_KEY is missing in environment variables!")
+        print("⚠️ Warning: GEMINI_API_KEY is missing!")
         return f"{raw_text} — به نقل از {source_hint}"
 
     prompt = (
-        "تو ادمین یک کانال تلگرامی پرمخاطب، جنجالی و به‌روز هستی.\n"
-        "وظیفه داری این خبر رو بازنویسی کنی تا کاملاً لحن گفتاری، عامیانه، محاوره‌ای و جذاب تلگرامی به خودش بگیره.\n\n"
-        f"متن خبر خام: \"{raw_text}\"\n\n"
+        "تو ادمین یک کانال تلگرامی تحلیل سیاسی و اخبار داغ نظامی هستی.\n"
+        "این خبر سیاسی بین‌المللی رو بخوان و اونو به زبان فارسی روان، ۱۰۰٪ محاوره‌ای (شکسته‌نویسی عامیانه) و جذاب تلگرامی تبدیل کن.\n\n"
+        f"متن اصلی خبر: \"{raw_text}\"\n\n"
         "قوانین بسیار مهم:\n"
-        "۱. تمام کلمات رسمی و کتابی رو به زبان محاوره‌ای روزمره تبدیل کن (مثلاً به جای «می‌خواهد بفروشد» بگو «می‌خواد بفروشه»، به جای «می‌نمایند» بگو «می‌کنن»).\n"
-        "۲. متن باید کلاً در ۱ جمله کوتاه اما بسیار جذاب و داغ خلاصه بشه.\n"
-        f"۳. حتماً و بدون استثنا در انتهای جمله عبارت زیر را عیناً اضافه کن:\n"
+        "۱. خروجی باید حتماً به زبان فارسی روان و کاملاً عامیانه/محاوره‌ای باشه (مثلاً به جای «ایالات متحده اعلام کرد» بگو «آمریکا اعلام کرد»، به جای «می‌نمایند» بگو «می‌کنن»).\n"
+        "۲. اصل خبر رو بدون تحریف در ۱ جمله کوتاه، دقیق و داغ خلاصه کن.\n"
+        "۳. فقط روی جنبه سیاسی، دیپلماتیک یا نظامی خبر تمرکز کن.\n"
+        f"۴. حتماً و بدون استثنا در انتهای جمله عبارت زیر را اضافه کن:\n"
         f"— به نقل از {source_hint}\n"
-        "۴. هیچ ایموجی یا علامت اضافه‌ای نذار."
+        "۵. هیچ ایموجی یا علامت اضافه‌ای نذار."
     )
 
     models_to_try = [
@@ -178,7 +183,7 @@ async def fetch_all_news_candidates(sent_history):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        # ۱. توییتر
+        # ۱. استخراج از اکانت‌های توییتری معتبر
         for server in NITTER_SERVERS:
             for acc in TWITTER_ACCOUNTS:
                 try:
@@ -200,10 +205,14 @@ async def fetch_all_news_candidates(sent_history):
 
                             full_text = f"{title} {description}".lower()
 
-                            has_iran = any(kw in full_text for kw in IRAN_KEYWORDS)
-                            has_us_israel = any(kw in full_text for kw in US_ISRAEL_KEYWORDS)
+                            # چک کردن عدم وجود کلمات ورزشی
+                            if any(ex in full_text for ex in EXCLUDE_KEYWORDS):
+                                continue
 
-                            if has_iran and has_us_israel and title not in sent_history:
+                            has_iran = any(kw in full_text for kw in IRAN_KEYWORDS)
+                            has_related = any(kw in full_text for kw in RELATED_KEYWORDS)
+
+                            if (has_iran or has_related) and title not in sent_history:
                                 candidates.append({
                                     "raw_title": f"{title}\n{description}",
                                     "link": final_source_url,
@@ -215,49 +224,28 @@ async def fetch_all_news_candidates(sent_history):
                 except Exception:
                     pass
 
-        # ۲. فیدهای داخلی
-        for feed in MARGINAL_RSS_FEEDS:
-            try:
-                r = await client.get(feed["url"], headers=headers)
-                if r.status_code == 200:
-                    root = ET.fromstring(r.text)
-                    items = root.findall("./channel/item")
-                    for item in items[:5]:
-                        title = item.find("title").text if item.find("title") is not None else ""
-                        link = item.find("link").text if item.find("link") is not None else ""
-                        pub_date_str = item.find("pubDate").text if item.find("pubDate") is not None else ""
-                        clean_title = re.sub(r'\s*-\s*[^-]+$', '', title).strip()
-
-                        if clean_title and len(clean_title) > 15 and clean_title not in sent_history:
-                            candidates.append({
-                                "raw_title": clean_title,
-                                "link": link,
-                                "pub_date": parse_pub_date(pub_date_str),
-                                "source_name": feed["name"],
-                                "media_url": None,
-                                "media_type": None
-                            })
-            except Exception as e:
-                print(f"Error reading RSS ({feed['name']}): {e}")
-
-        # ۳. گوگل نیوز
+        # ۲. استخراج از گوگل‌نیوز بین‌المللی (سیاسی و نظامی)
         try:
             r = await client.get(NEWS_RSS_URL, headers=headers)
             if r.status_code == 200:
                 root = ET.fromstring(r.text)
                 items = root.findall("./channel/item")
-                for item in items[:5]:
+                for item in items[:7]:
                     title = item.find("title").text if item.find("title") is not None else ""
                     link = item.find("link").text if item.find("link") is not None else ""
                     pub_date_str = item.find("pubDate").text if item.find("pubDate") is not None else ""
                     clean_title = re.sub(r'\s*-\s*[^-]+$', '', title).strip()
+
+                    lower_title = clean_title.lower()
+                    if any(ex in lower_title for ex in EXCLUDE_KEYWORDS):
+                        continue
 
                     if clean_title and clean_title not in sent_history:
                         candidates.append({
                             "raw_title": clean_title,
                             "link": link,
                             "pub_date": parse_pub_date(pub_date_str),
-                            "source_name": "رسانه‌ها",
+                            "source_name": "رسانه‌های بین‌المللی",
                             "media_url": None,
                             "media_type": None
                         })
@@ -267,10 +255,11 @@ async def fetch_all_news_candidates(sent_history):
     if not candidates:
         return None
 
+    # انتخاب تازه‌ترین خبر سیاسی بین‌المللی
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
     best_candidate = candidates[0]
 
-    print(f"🔥 Selected Top Fresh News from [{best_candidate['source_name']}]")
+    print(f"🔥 Selected Top Political News from [{best_candidate['source_name']}]")
     
     chatty_title = process_and_translate_with_gemini(
         best_candidate["raw_title"], 
@@ -305,7 +294,7 @@ async def get_latest_important_news():
         return news
 
     return {
-        "title": "جدیدترین تحولات منطقه‌ای و حواشی روز در حال پیگیری است — به نقل از رسانه‌ها",
+        "title": "آخرین تحولات دیپلماتیک و نظامی منطقه در حال رصد است — به نقل از منابع بین‌المللی",
         "link": "https://x.com",
         "media_url": None,
         "media_type": None
