@@ -18,6 +18,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+# کانال‌های تلگرامی برای دریافت پروکسی
 CHANNELS = [
     "MTProtoProxies",
     "ProxyMTProto",
@@ -39,8 +40,10 @@ NITTER_SERVERS = [
     "https://nitter.freedit.eu"
 ]
 
+# اکانت‌های معتبر اخبار سیاسی و نظامی بین‌المللی
 TWITTER_ACCOUNTS = ["clashreport", "Osint613", "Faytuks", "WarMonitors"]
 
+# کلمات کلیدی الزامی برای سنجش اخبار سیاسی
 IRAN_KEYWORDS = ["iran", "tehran", "irgc", "iranian", "persian"]
 RELATED_KEYWORDS = [
     "israel", "idf", "tel aviv", "us", "usa", "centcom", "pentagon", 
@@ -48,11 +51,13 @@ RELATED_KEYWORDS = [
     "sanctions", "military", "syria", "lebanon", "gaza", "houthis"
 ]
 
+# کلمات ممنوعه برای جلوگیری از ورود اخبار ورزشی، سینمایی یا غیرمرتبط
 EXCLUDE_KEYWORDS = [
     "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
-    "movie", "wedding", "stadium", "coach", "cup"
+    "movie", "wedding", "stadium", "coach", "cup", "wrestling"
 ]
 
+# جستجوی گوگل‌نیوز بین‌المللی برای اخبار سیاسی و نظامی
 POLITICAL_SEARCH_QUERY = 'Iran AND (Israel OR "United States" OR US OR military OR nuclear OR strike OR sanctions)'
 NEWS_RSS_URL = f"https://news.google.com/rss/search?q={quote(POLITICAL_SEARCH_QUERY)}&hl=en-US&gl=US&ceid=US:en"
 
@@ -95,20 +100,19 @@ def get_persian_date_digits(now):
 
 def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های بین‌المللی"):
     if not GEMINI_API_KEY:
-        print("⚠️ Warning: GEMINI_API_KEY is missing!")
-        return f"{raw_text} — به نقل از {source_hint}"
+        print("⚠️ GEMINI_API_KEY is missing!")
+        return None
 
     genai.configure(api_key=GEMINI_API_KEY)
 
     prompt = (
-        "تو ادمین یک کانال تلگرامی تحلیل سیاسی و اخبار داغ نظامی هستی.\n"
-        "این خبر سیاسی/نظامی رو حتماً به زبان فارسی روان، ۱۰۰٪ محاوره‌ای (شکسته‌نویسی عامیانه تلگرامی) و جنجالی ترجمه و بازنویسی کن.\n\n"
+        "تو ادمین یک کانال تلگرامی داغ و جنجالی هستی.\n"
+        "این خبر انگلیسی رو بخون و فقط و فقط لبّ مطلب و عصاره اصلی خبر رو به زبان فارسی روان، ۱۰۰٪ محاوره‌ای (با شکسته‌نویسی خیابانی/تلگرامی) خلاصه و ترجمه کن.\n\n"
         f"متن خبر: \"{raw_text}\"\n\n"
         "قوانین بسیار مهم:\n"
-        "۱. خبر باید کاملاً به فارسی عامیانه ترجمه بشه (اصلاً کلمات انگلیسی نذار بمونه).\n"
-        "۲. اصل خبر رو در ۱ جمله کوتاه و بسیار جذاب خلاصه کن.\n"
-        f"۳. حتماً در انتهای جمله عبارت زیر را عیناً اضافه کن:\n"
-        f"— به نقل از {source_hint}\n"
+        "۱. تمام کلمات کتابی و رسمی رو حذف کن (مثلاً به جای «ایالات متحده بیان نمود» بگو «آمریکا گفت»، یا به جای «می‌نمایند» بگو «می‌کنن»).\n"
+        "۲. فقط لبّ مطلب خبر در ۱ جمله بسیار کوتاه و جذاب.\n"
+        f"۳. حتماً در انتهای جمله دقیقاً بنویس: — به نقل از {source_hint}\n"
         "۴. هیچ ایموجی اضافه نکن."
     )
 
@@ -130,8 +134,8 @@ def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های
         except Exception as e:
             print(f"⚠️ Gemini Model {model_name} Error: {e}")
 
-    # اگر کل مدل‌ها ارور دادند، برای اینکه انگلیسی نره روی کانال:
-    return f"جدیدترین تحولات سیاسی و نظامی در منطقه — به نقل از {source_hint}"
+    # در صورت بروز خطا، None برمی‌گرداند تا خبر بعدی جایگزین شود
+    return None
 
 def parse_pub_date(pub_date_str):
     if not pub_date_str:
@@ -172,7 +176,7 @@ async def fetch_all_news_candidates(sent_history):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        # ۱. توییتر
+        # ۱. دریافت از اکانت‌های توییتری
         for server in NITTER_SERVERS:
             for acc in TWITTER_ACCOUNTS:
                 try:
@@ -212,7 +216,7 @@ async def fetch_all_news_candidates(sent_history):
                 except Exception:
                     pass
 
-        # ۲. گوگل نیوز بین‌المللی
+        # ۲. دریافت از گوگل نیوز بین‌المللی
         try:
             r = await client.get(NEWS_RSS_URL, headers=headers)
             if r.status_code == 200:
@@ -243,23 +247,27 @@ async def fetch_all_news_candidates(sent_history):
     if not candidates:
         return None
 
+    # مرتب‌سازی بر اساس تازه‌ترین زمان انتشار
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
-    best_candidate = candidates[0]
 
-    print(f"🔥 Selected Top News from [{best_candidate['source_name']}]")
-    
-    chatty_title = process_and_translate_with_gemini(
-        best_candidate["raw_title"], 
-        source_hint=best_candidate["source_name"]
-    )
+    # تست اخبار به ترتیب تا زمانی که جمینای یک ترجمه موفق و محاوره‌ای تحویل دهد
+    for candidate in candidates:
+        print(f"🔥 Processing news from [{candidate['source_name']}]...")
+        chatty_title = process_and_translate_with_gemini(
+            candidate["raw_title"], 
+            source_hint=candidate["source_name"]
+        )
 
-    return {
-        "title": chatty_title,
-        "link": best_candidate["link"],
-        "raw": best_candidate["raw_title"],
-        "media_url": best_candidate["media_url"],
-        "media_type": best_candidate["media_type"]
-    }
+        if chatty_title:
+            return {
+                "title": chatty_title,
+                "link": candidate["link"],
+                "raw": candidate["raw_title"],
+                "media_url": candidate["media_url"],
+                "media_type": candidate["media_type"]
+            }
+
+    return None
 
 async def get_latest_important_news():
     sent_history = []
@@ -280,12 +288,7 @@ async def get_latest_important_news():
             json.dump(sent_history, f, ensure_ascii=False)
         return news
 
-    return {
-        "title": "آخرین تحولات دیپلماتیک و نظامی منطقه در حال رصد است — به نقل از منابع بین‌المللی",
-        "link": "https://x.com",
-        "media_url": None,
-        "media_type": None
-    }
+    return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=3):
     try:
@@ -362,12 +365,15 @@ async def main():
         print("❌ No working proxies found.")
         return
 
+    news = await get_latest_important_news()
+    if not news:
+        print("⚠️ No valid news translated by Gemini in this run.")
+        return
+
     now_tehran = datetime.now(ZoneInfo("Asia/Tehran"))
     shamsi_date = get_persian_date_digits(now_tehran)
     gregorian_date = now_tehran.strftime("%Y/%m/%d")
     time_str = now_tehran.strftime("%H:%M")
-
-    news = await get_latest_important_news()
 
     channel_clean = CHAT_ID.replace('@', '')
     channel_handle = f"@{channel_clean}"
@@ -435,3 +441,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+	◦	
