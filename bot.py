@@ -12,7 +12,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, urlparse, quote
-from google import genai
+import google.generativeai as genai
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -39,10 +39,8 @@ NITTER_SERVERS = [
     "https://nitter.freedit.eu"
 ]
 
-# اکانت‌های معتبر اخبار سیاسی و نظامی بین‌المللی
 TWITTER_ACCOUNTS = ["clashreport", "Osint613", "Faytuks", "WarMonitors"]
 
-# کلمات کلیدی الزامی برای سنجش اخبار سیاسی
 IRAN_KEYWORDS = ["iran", "tehran", "irgc", "iranian", "persian"]
 RELATED_KEYWORDS = [
     "israel", "idf", "tel aviv", "us", "usa", "centcom", "pentagon", 
@@ -50,13 +48,11 @@ RELATED_KEYWORDS = [
     "sanctions", "military", "syria", "lebanon", "gaza", "houthis"
 ]
 
-# کلمات ممنوعه برای جلوگیری از ورود اخبار ورزشی یا غیرمرتبط
 EXCLUDE_KEYWORDS = [
     "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
     "movie", "wedding", "stadium", "coach", "cup"
 ]
 
-# گوگل نیوز بین‌المللی فقط برای اخبار سیاسی و نظامی ایران، آمریکا و اسرائیل
 POLITICAL_SEARCH_QUERY = 'Iran AND (Israel OR "United States" OR US OR military OR nuclear OR strike OR sanctions)'
 NEWS_RSS_URL = f"https://news.google.com/rss/search?q={quote(POLITICAL_SEARCH_QUERY)}&hl=en-US&gl=US&ceid=US:en"
 
@@ -97,52 +93,45 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های خارجی"):
+def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های بین‌المللی"):
     if not GEMINI_API_KEY:
         print("⚠️ Warning: GEMINI_API_KEY is missing!")
         return f"{raw_text} — به نقل از {source_hint}"
 
+    genai.configure(api_key=GEMINI_API_KEY)
+
     prompt = (
         "تو ادمین یک کانال تلگرامی تحلیل سیاسی و اخبار داغ نظامی هستی.\n"
-        "این خبر سیاسی بین‌المللی رو بخوان و اونو به زبان فارسی روان، ۱۰۰٪ محاوره‌ای (شکسته‌نویسی عامیانه) و جذاب تلگرامی تبدیل کن.\n\n"
-        f"متن اصلی خبر: \"{raw_text}\"\n\n"
+        "این خبر سیاسی/نظامی رو حتماً به زبان فارسی روان، ۱۰۰٪ محاوره‌ای (شکسته‌نویسی عامیانه تلگرامی) و جنجالی ترجمه و بازنویسی کن.\n\n"
+        f"متن خبر: \"{raw_text}\"\n\n"
         "قوانین بسیار مهم:\n"
-        "۱. خروجی باید حتماً به زبان فارسی روان و کاملاً عامیانه/محاوره‌ای باشه (مثلاً به جای «ایالات متحده اعلام کرد» بگو «آمریکا اعلام کرد»، به جای «می‌نمایند» بگو «می‌کنن»).\n"
-        "۲. اصل خبر رو بدون تحریف در ۱ جمله کوتاه، دقیق و داغ خلاصه کن.\n"
-        "۳. فقط روی جنبه سیاسی، دیپلماتیک یا نظامی خبر تمرکز کن.\n"
-        f"۴. حتماً و بدون استثنا در انتهای جمله عبارت زیر را اضافه کن:\n"
+        "۱. خبر باید کاملاً به فارسی عامیانه ترجمه بشه (اصلاً کلمات انگلیسی نذار بمونه).\n"
+        "۲. اصل خبر رو در ۱ جمله کوتاه و بسیار جذاب خلاصه کن.\n"
+        f"۳. حتماً در انتهای جمله عبارت زیر را عیناً اضافه کن:\n"
         f"— به نقل از {source_hint}\n"
-        "۵. هیچ ایموجی یا علامت اضافه‌ای نذار."
+        "۴. هیچ ایموجی اضافه نکن."
     )
 
     models_to_try = [
-        'gemini-2.0-flash',
         'gemini-1.5-flash',
-        'gemini-1.5-pro'
+        'gemini-1.5-pro',
+        'gemini-pro'
     ]
 
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        
-        for model_name in models_to_try:
-            try:
-                print(f"🔄 Trying model: {model_name}...")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    cleaned_text = response.text.strip().replace('"', '')
-                    print(f"✨ Gemini Output ({model_name}): {cleaned_text}")
-                    return cleaned_text
-            except Exception as model_err:
-                print(f"⚠️ Model {model_name} failed: {model_err}")
-                continue
+    for model_name in models_to_try:
+        try:
+            print(f"🔄 Requesting Gemini translation with model: {model_name}...")
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            if response and response.text:
+                cleaned_text = response.text.strip().replace('"', '')
+                print(f"✨ Gemini Output: {cleaned_text}")
+                return cleaned_text
+        except Exception as e:
+            print(f"⚠️ Gemini Model {model_name} Error: {e}")
 
-    except Exception as e:
-        print(f"❌ Gemini Client Error: {e}")
-
-    return f"{raw_text} — به نقل از {source_hint}"
+    # اگر کل مدل‌ها ارور دادند، برای اینکه انگلیسی نره روی کانال:
+    return f"جدیدترین تحولات سیاسی و نظامی در منطقه — به نقل از {source_hint}"
 
 def parse_pub_date(pub_date_str):
     if not pub_date_str:
@@ -183,7 +172,7 @@ async def fetch_all_news_candidates(sent_history):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        # ۱. استخراج از اکانت‌های توییتری معتبر
+        # ۱. توییتر
         for server in NITTER_SERVERS:
             for acc in TWITTER_ACCOUNTS:
                 try:
@@ -205,7 +194,6 @@ async def fetch_all_news_candidates(sent_history):
 
                             full_text = f"{title} {description}".lower()
 
-                            # چک کردن عدم وجود کلمات ورزشی
                             if any(ex in full_text for ex in EXCLUDE_KEYWORDS):
                                 continue
 
@@ -224,7 +212,7 @@ async def fetch_all_news_candidates(sent_history):
                 except Exception:
                     pass
 
-        # ۲. استخراج از گوگل‌نیوز بین‌المللی (سیاسی و نظامی)
+        # ۲. گوگل نیوز بین‌المللی
         try:
             r = await client.get(NEWS_RSS_URL, headers=headers)
             if r.status_code == 200:
@@ -255,11 +243,10 @@ async def fetch_all_news_candidates(sent_history):
     if not candidates:
         return None
 
-    # انتخاب تازه‌ترین خبر سیاسی بین‌المللی
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
     best_candidate = candidates[0]
 
-    print(f"🔥 Selected Top Political News from [{best_candidate['source_name']}]")
+    print(f"🔥 Selected Top News from [{best_candidate['source_name']}]")
     
     chatty_title = process_and_translate_with_gemini(
         best_candidate["raw_title"], 
