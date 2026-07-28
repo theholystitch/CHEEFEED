@@ -1,2 +1,2 @@
 httpx
-google-genai
+google-generativeai
