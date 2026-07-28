@@ -111,25 +111,26 @@ async def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌
         client = genai.Client(api_key=GEMINI_API_KEY)
         target_model = 'gemini-2.0-flash'
         
-        for attempt in range(2):
+        for attempt in range(3):
             try:
-                print(f"🔄 Requesting Gemini translation with model: {target_model}...")
+                print(f"🔄 Requesting Gemini translation for top news (Attempt {attempt+1})...")
                 response = client.models.generate_content(
                     model=target_model,
                     contents=prompt
                 )
                 if response and response.text:
                     cleaned_text = response.text.strip().replace('"', '')
-                    print(f"✨ Gemini Output ({target_model}): {cleaned_text}")
+                    print(f"✨ Gemini Output: {cleaned_text}")
                     return cleaned_text
             except Exception as e:
                 err_str = str(e)
                 print(f"⚠️ Gemini Model Error: {err_str}")
                 
-                # مدیریت ارور ۴۲۹ (تکمیل سهمیه لحظه‌ای)
-                if "429" in err_str or "quota" in err_str.lower():
-                    print("⏳ Rate limit hit. Waiting 20 seconds before retry...")
-                    await asyncio.sleep(20)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    wait_match = re.search(r'retry in (\d+\.?\d*)s', err_str)
+                    wait_time = float(wait_match.group(1)) + 1.0 if wait_match else 7.0
+                    print(f"⏳ Rate limit hit. Backing off for {wait_time:.1f} seconds...")
+                    await asyncio.sleep(wait_time)
                 else:
                     break
 
@@ -177,6 +178,7 @@ async def fetch_all_news_candidates(sent_history):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        # ۱. جمع‌آوری اخبار از توییتر (Nitter)
         for server in NITTER_SERVERS:
             for acc in TWITTER_ACCOUNTS:
                 try:
@@ -216,6 +218,7 @@ async def fetch_all_news_candidates(sent_history):
                 except Exception:
                     pass
 
+        # ۲. جمع‌آوری اخبار از Google News
         try:
             r = await client.get(NEWS_RSS_URL, headers=headers)
             if r.status_code == 200:
@@ -244,27 +247,29 @@ async def fetch_all_news_candidates(sent_history):
             print(f"Google News error: {e}")
 
     if not candidates:
+        print("ℹ️ No new news candidates found.")
         return None
 
+    # ۳. مرتب‌سازی بر اساس تازه‌ترین تاریخ انتشار
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
 
-    for candidate in candidates:
-        print(f"🔥 Processing news from [{candidate['source_name']}]...")
-        chatty_title = await process_and_translate_with_gemini(
-            candidate["raw_title"], 
-            source_hint=candidate["source_name"]
-        )
+    # 🎯 ارسال فقط ۱ خبر (جدیدترین خبر لیست) به Gemini
+    top_candidate = candidates[0]
+    print(f"🔥 Selected Top News from [{top_candidate['source_name']}]: {top_candidate['raw_title'][:60]}...")
 
-        if chatty_title:
-            return {
-                "title": chatty_title,
-                "link": candidate["link"],
-                "raw": candidate["raw_title"],
-                "media_url": candidate["media_url"],
-                "media_type": candidate["media_type"]
-            }
-        
-        await asyncio.sleep(3)
+    chatty_title = await process_and_translate_with_gemini(
+        top_candidate["raw_title"], 
+        source_hint=top_candidate["source_name"]
+    )
+
+    if chatty_title:
+        return {
+            "title": chatty_title,
+            "link": top_candidate["link"],
+            "raw": top_candidate["raw_title"],
+            "media_url": top_candidate["media_url"],
+            "media_type": top_candidate["media_type"]
+        }
 
     return None
 
