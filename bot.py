@@ -115,7 +115,7 @@ async def process_and_translate_with_openrouter(raw_text, source_hint="رسان�
     }
     
     payload = {
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "model": "inclusionai/ling-3.0-flash:free",
         "messages": [
             {"role": "user", "content": prompt}
         ],
@@ -124,7 +124,7 @@ async def process_and_translate_with_openrouter(raw_text, source_hint="رسان�
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            print("🔄 Requesting translation from OpenRouter (Llama 3.3 70B)...")
+            print("🔄 Requesting translation from OpenRouter (Ling-3.0-Flash)...")
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 200:
                 data = response.json()
