@@ -97,13 +97,13 @@ async def process_and_translate_with_openrouter(raw_text, source_hint="رسان�
 
     prompt = (
         "تو مترجم و ویراستار حرفه‌ای اخبار سیاسی هستی.\n"
-        "این خبر انگلیسی را با دقت کامل بخوان و عصاره و مفهوم دقیق آن را به فارسی روان، دقیق و ۱۰۰٪ محاوره‌ای (با شکسته‌نویسی طبیعی تلگرامی) خلاصه و ترجمه کن.\n\n"
+        "این خبر انگلیسی را با دقت کامل بخوان و عصاره اصلی آن را به فارسی روان و محاوره‌ای (شکسته‌نویسی طبیعی و عامیانه) ترجمه کن.\n\n"
         f"متن خبر اصلی: \"{raw_text}\"\n\n"
-        "قوانین بسیار مهم:\n"
-        "۱. به هیچ وجه نام اشخاص، کشورها یا مفاهیم سیاسی را جابه‌جا یا اشتباه ترجمه نکن.\n"
-        "۲. هیچ کلمه یا اصطلاح کتابی و رسمی به کار نبر (همه چیز به زبان گفتاری و راحت باشد).\n"
+        "قوانین حیاتی و بسیار مهم:\n"
+        "۱. لحن خبر باید صرفاً روان و راحت باشد، اما به هیچ وجه نباید شوخ‌طبع، مسخره‌آلود، عامیانهِ توهین‌آمیز یا سبک باشد (اخبار کاملاً جدی و سیاسی است).\n"
+        "۲. نام اشخاص، کشورها و مفاهیم سیاسی را دقیق و درست ترجمه کن و تغییر نده.\n"
         "۳. خروجی فقط و فقط در قالب ۱ جمله کوتاه، جذاب و کلیدی باشد.\n"
-        f"۴. در انتهای جمله حتماً دقیقاً این عبارت درج شود: — به نقل از {source_hint}\n"
+        "۴. به هیچ وجه از عبارت‌هایی مثل 'به نقل از...' یا ذکر منبع در متن خروجی استفاده نکن.\n"
         "۵. هیچ‌گونه ایموجی در متن قرار نده."
     )
 
@@ -116,7 +116,7 @@ async def process_and_translate_with_openrouter(raw_text, source_hint="رسان�
     }
     
     payload = {
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "model": "openrouter/free",
         "messages": [
             {"role": "user", "content": prompt}
         ],
@@ -125,7 +125,7 @@ async def process_and_translate_with_openrouter(raw_text, source_hint="رسان�
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            print("🔄 Requesting translation from OpenRouter (Llama 3.3 70B Free)...")
+            print("🔄 Requesting translation from OpenRouter (Auto Free Model)...")
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 200:
                 data = response.json()
