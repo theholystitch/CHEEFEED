@@ -1,5 +1,3 @@
-
-
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -12,7 +10,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, urlparse, quote
-import google.generativeai as genai
+from google import genai
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -93,12 +91,10 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های بین‌المللی"):
+async def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های بین‌المللی"):
     if not GEMINI_API_KEY:
         print("⚠️ GEMINI_API_KEY is missing!")
         return None
-
-    genai.configure(api_key=GEMINI_API_KEY)
 
     prompt = (
         "تو ادمین یک کانال تلگرامی داغ و جنجالی هستی.\n"
@@ -111,26 +107,31 @@ def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های
         "۴. هیچ ایموجی اضافه نکن."
     )
 
-    # مدل‌های فعال و پشتیبانی‌شده
+    # استفاده از SDK مدرن google-genai با مدل‌های فعال
     models_to_try = [
         'gemini-2.0-flash',
-        'gemini-1.5-flash',
-        'gemini-1.5-flash-latest',
-        'gemini-1.5-pro-latest',
-        'gemini-pro'
+        'gemini-1.5-flash'
     ]
 
-    for model_name in models_to_try:
-        try:
-            print(f"🔄 Requesting Gemini translation with model: {model_name}...")
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            if response and response.text:
-                cleaned_text = response.text.strip().replace('"', '')
-                print(f"✨ Gemini Output ({model_name}): {cleaned_text}")
-                return cleaned_text
-        except Exception as e:
-            print(f"⚠️ Gemini Model {model_name} Error: {e}")
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        for model_name in models_to_try:
+            try:
+                print(f"🔄 Requesting Gemini translation with model: {model_name}...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                if response and response.text:
+                    cleaned_text = response.text.strip().replace('"', '')
+                    print(f"✨ Gemini Output ({model_name}): {cleaned_text}")
+                    return cleaned_text
+            except Exception as e:
+                print(f"⚠️ Gemini Model {model_name} Error: {e}")
+                # تاخیر ۲ ثانیه‌ای برای نرسیدن به لیمیت API
+                await asyncio.sleep(2)
+    except Exception as err:
+        print(f"❌ Gemini Client Init Error: {err}")
 
     return None
 
@@ -246,7 +247,7 @@ async def fetch_all_news_candidates(sent_history):
 
     for candidate in candidates:
         print(f"🔥 Processing news from [{candidate['source_name']}]...")
-        chatty_title = process_and_translate_with_gemini(
+        chatty_title = await process_and_translate_with_gemini(
             candidate["raw_title"], 
             source_hint=candidate["source_name"]
         )
@@ -259,6 +260,9 @@ async def fetch_all_news_candidates(sent_history):
                 "media_url": candidate["media_url"],
                 "media_type": candidate["media_type"]
             }
+        
+        # تاخیر بین تست خبرها برای نرسیدن به لیمیت رایگان گوگل
+        await asyncio.sleep(3)
 
     return None
 
