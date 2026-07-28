@@ -1,4 +1,4 @@
-Name: Auto Post News & Proxies
+name: Auto Post News & Proxies
 
 on:
   schedule:
