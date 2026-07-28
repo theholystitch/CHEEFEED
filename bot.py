@@ -1,6 +1,5 @@
 
 
-
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -112,9 +111,12 @@ def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های
         "۴. هیچ ایموجی اضافه نکن."
     )
 
+    # مدل‌های فعال و پشتیبانی‌شده
     models_to_try = [
+        'gemini-2.0-flash',
         'gemini-1.5-flash',
-        'gemini-1.5-pro',
+        'gemini-1.5-flash-latest',
+        'gemini-1.5-pro-latest',
         'gemini-pro'
     ]
 
@@ -125,7 +127,7 @@ def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های
             response = model.generate_content(prompt)
             if response and response.text:
                 cleaned_text = response.text.strip().replace('"', '')
-                print(f"✨ Gemini Output: {cleaned_text}")
+                print(f"✨ Gemini Output ({model_name}): {cleaned_text}")
                 return cleaned_text
         except Exception as e:
             print(f"⚠️ Gemini Model {model_name} Error: {e}")
