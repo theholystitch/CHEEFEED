@@ -107,29 +107,32 @@ async def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌
         "۴. هیچ ایموجی اضافه نکن."
     )
 
-    # استفاده از SDK مدرن google-genai با مدل‌های فعال
-    models_to_try = [
-        'gemini-2.0-flash',
-        'gemini-1.5-flash'
-    ]
-
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-        for model_name in models_to_try:
+        target_model = 'gemini-2.0-flash'
+        
+        for attempt in range(2):
             try:
-                print(f"🔄 Requesting Gemini translation with model: {model_name}...")
+                print(f"🔄 Requesting Gemini translation with model: {target_model}...")
                 response = client.models.generate_content(
-                    model=model_name,
+                    model=target_model,
                     contents=prompt
                 )
                 if response and response.text:
                     cleaned_text = response.text.strip().replace('"', '')
-                    print(f"✨ Gemini Output ({model_name}): {cleaned_text}")
+                    print(f"✨ Gemini Output ({target_model}): {cleaned_text}")
                     return cleaned_text
             except Exception as e:
-                print(f"⚠️ Gemini Model {model_name} Error: {e}")
-                # تاخیر ۲ ثانیه‌ای برای نرسیدن به لیمیت API
-                await asyncio.sleep(2)
+                err_str = str(e)
+                print(f"⚠️ Gemini Model Error: {err_str}")
+                
+                # مدیریت ارور ۴۲۹ (تکمیل سهمیه لحظه‌ای)
+                if "429" in err_str or "quota" in err_str.lower():
+                    print("⏳ Rate limit hit. Waiting 20 seconds before retry...")
+                    await asyncio.sleep(20)
+                else:
+                    break
+
     except Exception as err:
         print(f"❌ Gemini Client Init Error: {err}")
 
@@ -261,7 +264,6 @@ async def fetch_all_news_candidates(sent_history):
                 "media_type": candidate["media_type"]
             }
         
-        # تاخیر بین تست خبرها برای نرسیدن به لیمیت رایگان گوگل
         await asyncio.sleep(3)
 
     return None
