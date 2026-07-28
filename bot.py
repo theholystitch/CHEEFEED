@@ -1,6 +1,3 @@
-
-
-
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -19,7 +16,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# کانال‌های تامین پروکسی
 CHANNELS = [
     "MTProtoProxies",
     "ProxyMTProto",
@@ -35,7 +31,6 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
-# سرورهای نیتر برای دریافت فید توییتر
 NITTER_SERVERS = [
     "https://nitter.poast.org",
     "https://nitter.privacydev.net",
@@ -43,21 +38,19 @@ NITTER_SERVERS = [
 ]
 TWITTER_ACCOUNTS = ["clashreport", "Osint613"]
 
-# شرط ترکیبی توییتر: حتماً هم ایران و هم آمریکا/اسرائیل در خبر باشند
 IRAN_KEYWORDS = ["iran", "tehran", "irgc", "iranian", "persian"]
 US_ISRAEL_KEYWORDS = ["israel", "idf", "tel aviv", "us", "usa", "centcom", "pentagon", "american", "washington", "strike", "drone", "missile"]
 
-# فیدهای حواشی، حوادث، سینما و فناوری
 MARGINAL_RSS_FEEDS = [
-    {"name": "فارس حوادث و جامعه", "url": "https://www.farsnews.ir/rss/social"},
-    {"name": "ایسنا فرهنگ و هنر", "url": "https://www.isna.ir/rss/tp/10"},
-    {"name": "ایسنا حوادث", "url": "https://www.isna.ir/rss/tp/9"},
-    {"name": "تسنیم فرهنگی", "url": "https://www.tasnimnews.com/fa/rss/feed/0/7/3/"},
-    {"name": "سیتنا فناوری", "url": "https://www.citna.ir/rss.xml"},
-    {"name": "ایرنا ورزش و حواشی", "url": "https://www.irna.ir/rss/tp/14"}
+    {"name": "فارس", "url": "https://www.farsnews.ir/rss/social"},
+    {"name": "ایسنا", "url": "https://www.isna.ir/rss/tp/10"},
+    {"name": "ایسنا", "url": "https://www.isna.ir/rss/tp/9"},
+    {"name": "تسنیم", "url": "https://www.tasnimnews.com/fa/rss/feed/0/7/3/"},
+    {"name": "سیتنا", "url": "https://www.citna.ir/rss.xml"},
+    {"name": "ایرنا", "url": "https://www.irna.ir/rss/tp/14"}
 ]
 
-MARGINAL_KEYWORDS = "بازیگر OR سینما OR جنجال OR حوادث OR کشف OR ازدواج OR زلزله OR دستگیری OR فوتبال OR هوش مصنوعی"
+MARGINAL_KEYWORDS = "بازیگر OR سینما OR جنجال OR حوادث OR کشف OR ازدواج OR ززلزله OR دستگیری OR ترامپ OR اینفانتینو OR فیفا"
 NEWS_RSS_URL = f"https://news.google.com/rss/search?q={quote(MARGINAL_KEYWORDS)}&hl=fa&gl=IR&ceid=IR:fa"
 
 HISTORY_FILE = "sent_news.json"
@@ -97,20 +90,21 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-def process_and_translate_with_gemini(raw_text, source_hint=""):
+def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌ها"):
     if not GEMINI_API_KEY:
-        return raw_text
+        print("⚠️ Warning: GEMINI_API_KEY is missing in environment variables!")
+        return f"{raw_text} — به نقل از {source_hint}"
 
     prompt = (
-        "تو ادمین یک کانال تلگرامی پرمخاطب، خفن و به‌روز هستی.\n"
-        "این تیتر یا متن خبری رو بگیر و به یک جمله کوتاه، کاملاً محاوره‌ای، عامیانه و جذاب (لحن داغ تلگرامی) تبدیل کن.\n\n"
-        f"متن اصلی: \"{raw_text}\"\n\n"
-        "قوانین مهم:\n"
-        "۱. لحن باید کاملاً گفتاری و محاوره‌ای باشه (مثلاً به جای «نمایندگان ایران یک مدال طلا کسب کردند» بگو «کشتی‌گیرهای نوجوانمون یه طلا و یه برنز تو مسابقات جهانی گرفتن!»).\n"
-        "۲. اصل خبر نباید عوض بشه، فقط لحنش داغ و رفیقانه بشه.\n"
-        "۳. کلاً کل متن فقط و فقط در ۱ جمله خلاصه بشه.\n"
-        f"۴. در آخر جمله حتماً منبع رو اضافه کن (مثلاً: — به نقل از {source_hint}).\n"
-        "۵. هیچ علامت یا ایموجی اضافی اول و آخرش نذار."
+        "تو ادمین یک کانال تلگرامی پرمخاطب، جنجالی، روانی و به‌روز هستی.\n"
+        "وظیفه داری این خبر رو بازنویسی کنی تا کاملاً لحن گفتاری، عامیانه، محاوره‌ای و جذاب تلگرامی به خودش بگیره.\n\n"
+        f"متن خبر خام: \"{raw_text}\"\n\n"
+        "قوانین بسیار مهم:\n"
+        "۱. تمام کلمات رسمی و کتابی رو به زبان محاوره‌ای روزمره تبدیل کن (مثلاً به جای «می‌خواهد بفروشد» بگو «می‌خواد بفروشه»، به جای «می‌نمایند» بگو «می‌کنن»).\n"
+        "۲. متن باید کلاً در ۱ جمله کوتاه اما بسیار جذاب و داغ خلاصه بشه.\n"
+        f"۳. حتماً و بدون استثنا در انتهای جمله عبارت زیر را عیناً اضافه کن:\n"
+        f"— به نقل از {source_hint}\n"
+        "۴. هیچ ایموجی یا علامت اضافه‌ای نذار."
     )
 
     try:
@@ -120,11 +114,13 @@ def process_and_translate_with_gemini(raw_text, source_hint=""):
             contents=prompt,
         )
         if response and response.text:
-            return response.text.strip().replace('"', '')
+            cleaned_text = response.text.strip().replace('"', '')
+            print(f"✨ Gemini Output: {cleaned_text}")
+            return cleaned_text
     except Exception as e:
-        print(f"Gemini API Error: {e}")
+        print(f"❌ Gemini API Error: {e}")
 
-    return raw_text
+    return f"{raw_text} — به نقل از {source_hint}"
 
 def parse_pub_date(pub_date_str):
     if not pub_date_str:
@@ -165,7 +161,7 @@ async def fetch_all_news_candidates(sent_history):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        # ۱. اسکن توییتر (شرط: ایران + آمریکا/اسرائیل)
+        # ۱. توییتر
         for server in NITTER_SERVERS:
             for acc in TWITTER_ACCOUNTS:
                 try:
@@ -199,10 +195,10 @@ async def fetch_all_news_candidates(sent_history):
                                     "media_url": media_url,
                                     "media_type": media_type
                                 })
-                except Exception as e:
+                except Exception:
                     pass
 
-        # ۲. اسکن فیدهای حواشی، حوادث و فرهنگ/هنر داخلی
+        # ۲. فیدهای داخلی
         for feed in MARGINAL_RSS_FEEDS:
             try:
                 r = await client.get(feed["url"], headers=headers)
@@ -227,7 +223,7 @@ async def fetch_all_news_candidates(sent_history):
             except Exception as e:
                 print(f"Error reading RSS ({feed['name']}): {e}")
 
-        # ۳. اسکن گوگل نیوز حواشی
+        # ۳. گوگل نیوز
         try:
             r = await client.get(NEWS_RSS_URL, headers=headers)
             if r.status_code == 200:
