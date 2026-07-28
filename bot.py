@@ -1,5 +1,6 @@
 
 
+
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -18,7 +19,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# کانال‌های تلگرامی برای دریافت پروکسی
 CHANNELS = [
     "MTProtoProxies",
     "ProxyMTProto",
@@ -40,10 +40,8 @@ NITTER_SERVERS = [
     "https://nitter.freedit.eu"
 ]
 
-# اکانت‌های معتبر اخبار سیاسی و نظامی بین‌المللی
 TWITTER_ACCOUNTS = ["clashreport", "Osint613", "Faytuks", "WarMonitors"]
 
-# کلمات کلیدی الزامی برای سنجش اخبار سیاسی
 IRAN_KEYWORDS = ["iran", "tehran", "irgc", "iranian", "persian"]
 RELATED_KEYWORDS = [
     "israel", "idf", "tel aviv", "us", "usa", "centcom", "pentagon", 
@@ -51,13 +49,11 @@ RELATED_KEYWORDS = [
     "sanctions", "military", "syria", "lebanon", "gaza", "houthis"
 ]
 
-# کلمات ممنوعه برای جلوگیری از ورود اخبار ورزشی، سینمایی یا غیرمرتبط
 EXCLUDE_KEYWORDS = [
     "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
     "movie", "wedding", "stadium", "coach", "cup", "wrestling"
 ]
 
-# جستجوی گوگل‌نیوز بین‌المللی برای اخبار سیاسی و نظامی
 POLITICAL_SEARCH_QUERY = 'Iran AND (Israel OR "United States" OR US OR military OR nuclear OR strike OR sanctions)'
 NEWS_RSS_URL = f"https://news.google.com/rss/search?q={quote(POLITICAL_SEARCH_QUERY)}&hl=en-US&gl=US&ceid=US:en"
 
@@ -134,7 +130,6 @@ def process_and_translate_with_gemini(raw_text, source_hint="رسانه‌های
         except Exception as e:
             print(f"⚠️ Gemini Model {model_name} Error: {e}")
 
-    # در صورت بروز خطا، None برمی‌گرداند تا خبر بعدی جایگزین شود
     return None
 
 def parse_pub_date(pub_date_str):
@@ -176,7 +171,6 @@ async def fetch_all_news_candidates(sent_history):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        # ۱. دریافت از اکانت‌های توییتری
         for server in NITTER_SERVERS:
             for acc in TWITTER_ACCOUNTS:
                 try:
@@ -216,7 +210,6 @@ async def fetch_all_news_candidates(sent_history):
                 except Exception:
                     pass
 
-        # ۲. دریافت از گوگل نیوز بین‌المللی
         try:
             r = await client.get(NEWS_RSS_URL, headers=headers)
             if r.status_code == 200:
@@ -247,10 +240,8 @@ async def fetch_all_news_candidates(sent_history):
     if not candidates:
         return None
 
-    # مرتب‌سازی بر اساس تازه‌ترین زمان انتشار
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
 
-    # تست اخبار به ترتیب تا زمانی که جمینای یک ترجمه موفق و محاوره‌ای تحویل دهد
     for candidate in candidates:
         print(f"🔥 Processing news from [{candidate['source_name']}]...")
         chatty_title = process_and_translate_with_gemini(
@@ -441,4 +432,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-	◦	
