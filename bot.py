@@ -126,7 +126,6 @@ async def process_and_translate_with_openrouter(raw_text):
     return None
 
 async def fetch_telegram_channel_news(channel_username, channel_display_name, sent_history):
-    candidates = []
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     url = f"https://t.me/s/{channel_username}"
 
@@ -136,7 +135,8 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             if r.status_code == 200:
                 posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
                 
-                for post in posts[-10:]:
+                # بررسی پست‌های آخر (از جدید به قدیم) برای پیدا کردن اولین پستی که ارسال نشده
+                for post in reversed(posts[-5:]):
                     clean_text = re.sub(r'<[^>]+>', ' ', post).strip()
                     clean_text = re.sub(r'\s+', ' ', clean_text)
                     
@@ -149,15 +149,15 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
 
                     raw_id = f"{channel_username}_{clean_text[:40]}"
                     if raw_id not in sent_history:
-                        candidates.append({
+                        return {
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
                             "raw_id": raw_id
-                        })
+                        }
         except Exception as e:
             print(f"Error fetching channel {channel_username}: {e}")
 
-    return candidates
+    return None
 
 async def get_latest_important_news():
     sent_history = []
@@ -168,27 +168,27 @@ async def get_latest_important_news():
         except:
             sent_history = []
 
-    all_candidates = []
-    
+    # جستجوی کانال‌ها برای پیدا کردن نخستین پستی که در تاریخچه نیست
     for username, display_name in NEWS_CHANNELS.items():
-        channel_posts = await fetch_telegram_channel_news(username, display_name, sent_history)
-        all_candidates.extend(channel_posts)
+        candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
+        if candidate:
+            print(f"🔥 Selected News from [{candidate['source_name']}]: {candidate['raw_text'][:60]}...")
+            chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
+            if chatty_title:
+                # اضافه کردن به تاریخچه و ذخیره
+                sent_history.append(candidate["raw_id"])
+                if len(sent_history) > 100:
+                    sent_history = sent_history[-100:]
+                try:
+                    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                        json.dump(sent_history, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    print(f"Error saving history: {e}")
 
-    if not all_candidates:
-        print("ℹ️ No new news found from channels.")
-        return None
-
-    top_candidate = all_candidates[0]
-    print(f"🔥 Selected News from [{top_candidate['source_name']}]: {top_candidate['raw_text'][:60]}...")
-
-    chatty_title = await process_and_translate_with_openrouter(top_candidate["raw_text"])
-
-    if chatty_title:
-        return {
-            "title": chatty_title,
-            "source": top_candidate["source_name"],
-            "raw": top_candidate["raw_id"]
-        }
+                return {
+                    "title": chatty_title,
+                    "source": candidate["source_name"]
+                }
 
     return None
 
@@ -281,7 +281,6 @@ async def main():
     channel_handle = f"@{channel_clean}"
     channel_url = f"https://t.me/{channel_clean}"
 
-    # اصلاح شده: قرار گرفتن آیدی در ابتدای خط برای جلوگیری از به هم ریختگی BiDi در تلگرام
     msg = (
         f"⏰ <code>{time_str}</code>\n"
         f"🇮🇷 <code>{shamsi_date}</code>\n"
