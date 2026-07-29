@@ -30,10 +30,10 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
-NITTER_SERVERS = [
-    "https://nitter.poast.org",
-    "https://nitter.privacydev.net",
-    "https://nitter.freedit.eu"
+# استفاده از RSSHub به عنوان جایگزین پایدار برای Nitter جهت عبور از تحریم/بلاک گیت‌هاب
+RSS_INSTANCES = [
+    "https://rsshub.app/twitter/user/",
+    "https://nitter.poast.org/"
 ]
 
 TWITTER_ACCOUNTS = [
@@ -160,7 +160,7 @@ def extract_media_and_url(description, fallback_link):
     urls = re.findall(r'https?://[^\s<>"]+', description)
     source_url = fallback_link
     for url in urls:
-        if not any(x in url for x in ["twitter.com", "x.com", "nitter"]):
+        if not any(x in url for x in ["twitter.com", "x.com", "nitter", "rsshub"]):
             source_url = url
             break
 
@@ -170,34 +170,46 @@ async def fetch_all_news_candidates(sent_history):
     candidates = []
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
-    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        for server in NITTER_SERVERS:
-            for acc in TWITTER_ACCOUNTS:
+    async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+        for acc in TWITTER_ACCOUNTS:
+            success = False
+            # ابتدا با RSSHub تست میکنیم، اگر جواب نداد سراغ Nitter میرویم
+            feed_urls = [
+                f"https://rsshub.app/twitter/user/{acc}",
+                f"https://nitter.poast.org/{acc}/rss",
+                f"https://nitter.privacydev.net/{acc}/rss"
+            ]
+            
+            for feed_url in feed_urls:
+                if success:
+                    break
                 try:
-                    r = await client.get(f"{server}/{acc}/rss", headers=headers)
+                    r = await client.get(feed_url, headers=headers)
                     if r.status_code == 200:
                         root = ET.fromstring(r.text)
-                        items = root.findall("./channel/item")
-                        # افزایش تعداد بررسی توییت‌ها از هر اکانت به 10 پست آخر تا دستمان بازتر باشد
+                        items = root.findall(".//item")
+                        if not items:
+                            items = root.findall("./channel/item")
+                            
                         for item in items[:10]:
                             title = item.find("title").text if item.find("title") is not None else ""
                             description = item.find("description").text if item.find("description") is not None else ""
                             link = item.find("link").text if item.find("link") is not None else ""
                             pub_date_str = item.find("pubDate").text if item.find("pubDate") is not None else ""
                             
-                            twitter_link = re.sub(r'https?://[^/]+', 'https://x.com', link)
-                            media_url, media_type, final_source_url = extract_media_and_url(description, twitter_link)
+                            # پاکسازی تگ‌های اضافی از عنوان در صورت وجود
+                            title = re.sub(r'<[^>]+>', '', title).strip()
+                            description = re.sub(r'<[^>]+>', '', description).strip()
                             
-                            if media_url and media_url.startswith("/"):
-                                media_url = f"{server}{media_url}"
+                            twitter_link = re.sub(r'https?://[^/]+', 'https://x.com', link) if link else f"https://x.com/{acc}"
+                            media_url, media_type, final_source_url = extract_media_and_url(description, twitter_link)
 
                             full_text = f"{title} {description}".lower()
 
                             if any(ex in full_text for ex in EXCLUDE_KEYWORDS):
                                 continue
 
-                            # بررسی اینکه این توییت قبلاً ارسال نشده باشد
-                            raw_id = f"{title}"
+                            raw_id = f"{acc}_{title[:50]}"
                             if title and raw_id not in sent_history:
                                 candidates.append({
                                     "raw_title": f"{title}\n{description}",
@@ -208,14 +220,14 @@ async def fetch_all_news_candidates(sent_history):
                                     "media_type": media_type,
                                     "raw_id": raw_id
                                 })
+                        success = True
                 except Exception:
-                    pass
+                    continue
 
     if not candidates:
-        print("ℹ️ No new tweets found in this check.")
+        print("ℹ️ No new tweets found across available instances.")
         return None
 
-    # مرتب‌سازی بر اساس جدیدترین تاریخ انتشار
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
 
     top_candidate = candidates[0]
@@ -400,7 +412,7 @@ async def main():
                 "reply_markup": reply_markup,
                 "disable_web_page_preview": True
             }
-            r = await client.post(telegram_url, json.post if hasattr(client, 'post') else None, json=payload) if False else await client.post(telegram_url, json=payload)
+            r = await client.post(telegram_url, json=payload)
             if r.status_code == 200:
                 print("🚀 Text message sent successfully!")
 
