@@ -32,6 +32,7 @@ PATTERNS = [
 ]
 
 NEWS_CHANNELS = {
+    "ClashReport": "Clash Report",
     "Alarabiya_far": "العربیه فارسی",
     "bricsnews": "BRICS News",
     "disclosetv": "DiscloseTV",
