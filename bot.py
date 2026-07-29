@@ -8,6 +8,8 @@ import httpx
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, urlparse
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -49,6 +51,19 @@ EXCLUDE_KEYWORDS = [
 
 HISTORY_FILE = "sent_news.json"
 
+# یک وب‌سرور خیلی سبک برای اینکه رندر راضی بماند و پورت را باز نگه دارد
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is running successfully!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), SimpleHandler)
+    server.serve_forever()
+
 def get_flag_emoji(country_code):
     if not country_code or len(country_code) != 2:
         return "🔌"
@@ -86,7 +101,6 @@ def get_persian_date_digits(now):
 
 async def process_and_translate_with_openrouter(raw_text):
     if not OPENROUTER_API_KEY:
-        print("⚠️ OPENROUTER_API_KEY is missing!")
         return None
 
     prompt = (
@@ -229,10 +243,8 @@ async def scrape_proxies():
 
 async def job():
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ Error: BOT_TOKEN or CHAT_ID missing!")
         return
 
-    print("🔎 Searching for Telegram proxies...")
     raw_proxies = await scrape_proxies()
     working_proxies = []
     
@@ -247,12 +259,10 @@ async def job():
                         break
 
     if not working_proxies:
-        print("❌ No working proxies found.")
         return
 
     news = await get_latest_important_news()
     if not news:
-        print("⚠️ No valid news translated in this run.")
         return
 
     now_tehran = datetime.now(ZoneInfo("Asia/Tehran"))
@@ -297,20 +307,19 @@ async def job():
             "reply_markup": reply_markup,
             "disable_web_page_preview": True
         }
-        r = await client.post(telegram_url, json=payload)
-        if r.status_code == 200:
-            print("🚀 Text message sent successfully!")
+        await client.post(telegram_url, json=payload)
 
 async def main():
-    print("🤖 Bot started in continuous loop mode...")
+    # روشن کردن وب‌سرور کوچک در یک ترد جداگانه برای رندر
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
+    
     while True:
         try:
             await job()
         except Exception as e:
-            print(f"❌ Error in loop: {e}")
-        
-        print("⏳ Waiting 15 minutes for the next run...")
-        await asyncio.sleep(900) # ۱۵ دقیقه
+            print(f"Error: {e}")
+        await asyncio.sleep(900)
 
 if __name__ == "__main__":
     asyncio.run(main())
