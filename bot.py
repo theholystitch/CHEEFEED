@@ -30,17 +30,11 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
-# استفاده از RSSHub به عنوان جایگزین پایدار برای Nitter جهت عبور از تحریم/بلاک گیت‌هاب
-RSS_INSTANCES = [
-    "https://rsshub.app/twitter/user/",
-    "https://nitter.poast.org/"
-]
-
-TWITTER_ACCOUNTS = [
-    "ClashReport", 
-    "Osint613", 
-    "MiddleEastEye", 
-    "AlArabiya_Fa"
+# استفاده از فیدهای عمومی و پایدار خبری به عنوان جایگزین مطمئن برای گیت‌هاب
+FALLBACK_RSS_FEEDS = [
+    "https://news.google.com/rss/search?q=geopolitics+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "https://moxie.foxnews.com/google-publisher/world.xml",
+    "https://www.aljazeera.com/xml/rss/all.xml"
 ]
 
 EXCLUDE_KEYWORDS = [
@@ -92,7 +86,7 @@ async def process_and_translate_with_openrouter(raw_text):
 
     prompt = (
         "تو مترجم و ویراستار حرفه‌ای اخبار سیاسی و نظامی هستی.\n"
-        "این توییت یا خبر انگلیسی را با دقت کامل بخوان و عصاره اصلی آن را به فارسی روان و محاوره‌ای (شکسته‌نویسی طبیعی و عامیانه) ترجمه کن.\n\n"
+        "این خبر انگلیسی را با دقت کامل بخوان و عصاره اصلی آن را به فارسی روان و محاوره‌ای (شکسته‌نویسی طبیعی و عامیانه) ترجمه کن.\n\n"
         f"متن اصلی: \"{raw_text}\"\n\n"
         "قوانین حیاتی و بسیار مهم:\n"
         "۱. لحن خبر باید صرفاً روان و راحت باشد، اما به هیچ وجه نباید شوخ‌طبع، مسخره‌آلود، عامیانهِ توهین‌آمیز یا سبک باشد (اخبار کاملاً جدی و استراتژیک است).\n"
@@ -140,98 +134,52 @@ def parse_pub_date(pub_date_str):
     except:
         return datetime.min.replace(tzinfo=ZoneInfo("UTC"))
 
-def extract_media_and_url(description, fallback_link):
-    media_url = None
-    media_type = None
-
-    video_match = re.search(r'<video[^>]+src=["\']([^"\']+)["\']', description)
-    if not video_match:
-        video_match = re.search(r'<source[^>]+src=["\']([^"\']+)["\']', description)
-    
-    if video_match:
-        media_url = video_match.group(1)
-        media_type = "video"
-    else:
-        img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', description)
-        if img_match:
-            media_url = img_match.group(1)
-            media_type = "photo"
-
-    urls = re.findall(r'https?://[^\s<>"]+', description)
-    source_url = fallback_link
-    for url in urls:
-        if not any(x in url for x in ["twitter.com", "x.com", "nitter", "rsshub"]):
-            source_url = url
-            break
-
-    return media_url, media_type, source_url
-
 async def fetch_all_news_candidates(sent_history):
     candidates = []
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
-    async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
-        for acc in TWITTER_ACCOUNTS:
-            success = False
-            # ابتدا با RSSHub تست میکنیم، اگر جواب نداد سراغ Nitter میرویم
-            feed_urls = [
-                f"https://rsshub.app/twitter/user/{acc}",
-                f"https://nitter.poast.org/{acc}/rss",
-                f"https://nitter.privacydev.net/{acc}/rss"
-            ]
-            
-            for feed_url in feed_urls:
-                if success:
-                    break
-                try:
-                    r = await client.get(feed_url, headers=headers)
-                    if r.status_code == 200:
-                        root = ET.fromstring(r.text)
-                        items = root.findall(".//item")
-                        if not items:
-                            items = root.findall("./channel/item")
-                            
-                        for item in items[:10]:
-                            title = item.find("title").text if item.find("title") is not None else ""
-                            description = item.find("description").text if item.find("description") is not None else ""
-                            link = item.find("link").text if item.find("link") is not None else ""
-                            pub_date_str = item.find("pubDate").text if item.find("pubDate") is not None else ""
-                            
-                            # پاکسازی تگ‌های اضافی از عنوان در صورت وجود
-                            title = re.sub(r'<[^>]+>', '', title).strip()
-                            description = re.sub(r'<[^>]+>', '', description).strip()
-                            
-                            twitter_link = re.sub(r'https?://[^/]+', 'https://x.com', link) if link else f"https://x.com/{acc}"
-                            media_url, media_type, final_source_url = extract_media_and_url(description, twitter_link)
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        for feed_url in FALLBACK_RSS_FEEDS:
+            try:
+                r = await client.get(feed_url, headers=headers)
+                if r.status_code == 200:
+                    root = ET.fromstring(r.text)
+                    items = root.findall(".//item")
+                    
+                    for item in items[:15]:
+                        title = item.find("title").text if item.find("title") is not None else ""
+                        description = item.find("description").text if item.find("description") is not None else ""
+                        link = item.find("link").text if item.find("link") is not None else ""
+                        pub_date_str = item.find("pubDate").text if item.find("pubDate") is not None else ""
+                        
+                        title = re.sub(r'<[^>]+>', '', title).strip()
+                        description = re.sub(r'<[^>]+>', '', description).strip()
 
-                            full_text = f"{title} {description}".lower()
+                        full_text = f"{title} {description}".lower()
 
-                            if any(ex in full_text for ex in EXCLUDE_KEYWORDS):
-                                continue
+                        if any(ex in full_text for ex in EXCLUDE_KEYWORDS):
+                            continue
 
-                            raw_id = f"{acc}_{title[:50]}"
-                            if title and raw_id not in sent_history:
-                                candidates.append({
-                                    "raw_title": f"{title}\n{description}",
-                                    "link": final_source_url,
-                                    "pub_date": parse_pub_date(pub_date_str),
-                                    "source_name": f"توییتر (@{acc})",
-                                    "media_url": media_url,
-                                    "media_type": media_type,
-                                    "raw_id": raw_id
-                                })
-                        success = True
-                except Exception:
-                    continue
+                        raw_id = title[:50]
+                        if title and raw_id not in sent_history:
+                            candidates.append({
+                                "raw_title": f"{title}\n{description}",
+                                "link": link if link else "https://t.me",
+                                "pub_date": parse_pub_date(pub_date_str),
+                                "source_name": "خبرگزاری معتبر",
+                                "raw_id": raw_id
+                            })
+            except Exception as e:
+                print(f"Error fetching feed {feed_url}: {e}")
+                continue
 
     if not candidates:
-        print("ℹ️ No new tweets found across available instances.")
+        print("ℹ️ No new news found.")
         return None
 
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
-
     top_candidate = candidates[0]
-    print(f"🔥 Selected Top Tweet from [{top_candidate['source_name']}]: {top_candidate['raw_title'][:60]}...")
+    print(f"🔥 Selected Top News: {top_candidate['raw_title'][:60]}...")
 
     chatty_title = await process_and_translate_with_openrouter(top_candidate["raw_title"])
 
@@ -239,9 +187,7 @@ async def fetch_all_news_candidates(sent_history):
         return {
             "title": chatty_title,
             "link": top_candidate["link"],
-            "raw": top_candidate["raw_id"],
-            "media_url": top_candidate["media_url"],
-            "media_type": top_candidate["media_type"]
+            "raw": top_candidate["raw_id"]
         }
 
     return None
@@ -382,39 +328,17 @@ async def main():
     reply_markup = {"inline_keyboard": keyboard_inline}
 
     async with httpx.AsyncClient(timeout=30) as client:
-        media_sent = False
-        
-        if news.get("media_url") and news.get("media_type"):
-            media_type = news["media_type"]
-            endpoint = "sendPhoto" if media_type == "photo" else "sendVideo"
-            param_key = "photo" if media_type == "photo" else "video"
-            
-            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/{endpoint}"
-            payload = {
-                "chat_id": CHAT_ID,
-                param_key: news["media_url"],
-                "caption": msg,
-                "parse_mode": "HTML",
-                "reply_markup": reply_markup
-            }
-            
-            r = await client.post(telegram_url, json=payload)
-            if r.status_code == 200:
-                print(f"🚀 Message with {media_type} sent successfully!")
-                media_sent = True
-
-        if not media_sent:
-            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            payload = {
-                "chat_id": CHAT_ID,
-                "text": msg,
-                "parse_mode": "HTML",
-                "reply_markup": reply_markup,
-                "disable_web_page_preview": True
-            }
-            r = await client.post(telegram_url, json=payload)
-            if r.status_code == 200:
-                print("🚀 Text message sent successfully!")
+        telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": msg,
+            "parse_mode": "HTML",
+            "reply_markup": reply_markup,
+            "disable_web_page_preview": True
+        }
+        r = await client.post(telegram_url, json=payload)
+        if r.status_code == 200:
+            print("🚀 Text message sent successfully!")
 
 if __name__ == "__main__":
     asyncio.run(main())
