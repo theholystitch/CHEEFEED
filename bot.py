@@ -89,13 +89,10 @@ async def process_and_translate_with_openrouter(raw_text):
         print("⚠️ OPENROUTER_API_KEY is missing!")
         return None
 
-    # پرامپت اصلاح‌شده به زبان انگلیسی برای عبور از فیلترهای امنیتی مدل رایگان
+    # پرامپت اصلاح‌شده و امن برای مدل پیش‌فرض (openrouter/free)
     prompt = (
-        "Translate the following news text into fluent, natural, and serious Persian (casual/slang breakdown style, but completely formal and respectful in tone, suitable for strategic news).\n"
-        "Rules:\n"
-        "1. Output ONLY 1 short, key sentence in Persian.\n"
-        "2. Do not include any intro, source mention, or extra words.\n"
-        "3. Do not use any emojis.\n\n"
+        "Translate and summarize the following text into 1 fluent, clear, and serious sentence in Persian. "
+        "Do not include any emojis, intro text, or source names.\n\n"
         f"Text: {raw_text}"
     )
 
