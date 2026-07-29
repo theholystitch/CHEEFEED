@@ -107,10 +107,10 @@ async def process_and_translate_with_openrouter(raw_text):
     raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
 
     prompt = (
-        "Analyze this news. FIRST, check if it is directly related to **Iran, USA, or Israel** (politics, military, conflicts, attacks, or diplomacy). "
-        "If it is NOT related to Iran, USA, or Israel, reply with the exact word: IGNORE. "
-        "If it IS related, rewrite it into a **complete, clear, and fully meaningful sentence** in **Semi-Formal Persian (رسمی و روان)**. "
-        "Do NOT write isolated, cryptic words (like just 'موشک' or 'حمله'). Write a proper, complete sentence explaining the core action clearly (e.g., 'شلیک چند فروند موشک به سمت...'). Keep it within 1 to 2 short lines. "
+        "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
+        "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
+        "If it IS related, rewrite it in **simple, direct, and conversational Persian (محاوره‌ای ساده، بدون شوخی، کاملاً بی‌طرف و بدون جانبه‌داری)**. "
+        "Style should be like: 'فلانی گفت فلان موضوع' or 'ایران فلان کار را کرد'. Avoid formal literary words, avoid jokes, and keep it completely neutral and factual within 1 to 2 short lines. "
         "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
         f"\n\nText: {raw_text_clean}"
     )
@@ -188,7 +188,7 @@ async def get_latest_important_news():
         if candidate:
             chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
             if chatty_title and "Safety" not in chatty_title:
-                print(f"🔥 Selected Iran/USA/Israel News from [{candidate['source_name']}]")
+                print(f"🔥 Selected Iran-Centric News from [{candidate['source_name']}]")
                 sent_history.append(candidate["raw_id"])
                 if len(sent_history) > 100:
                     sent_history = sent_history[-100:]
