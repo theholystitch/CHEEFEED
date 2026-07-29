@@ -5,9 +5,7 @@ import json
 import socket
 import asyncio
 import httpx
-import xml.etree.ElementTree as ET
 from datetime import datetime
-from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, urlparse
 
@@ -15,7 +13,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-CHANNELS = [
+PROXY_CHANNELS = [
     "MTProtoProxies",
     "ProxyMTProto",
     "TelMTProto",
@@ -30,16 +28,23 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
-# استفاده از فیدهای عمومی و پایدار خبری به عنوان جایگزین مطمئن برای گیت‌هاب
-FALLBACK_RSS_FEEDS = [
-    "https://news.google.com/rss/search?q=geopolitics+when:1d&hl=en-US&gl=US&ceid=US:en",
-    "https://moxie.foxnews.com/google-publisher/world.xml",
-    "https://www.aljazeera.com/xml/rss/all.xml"
-]
+NEWS_CHANNELS = {
+    "Alarabiya_far": "العربیه فارسی",
+    "bricsnews": "BRICS News",
+    "disclosetv": "DiscloseTV",
+    "intelslava": "Intel Slava",
+    "nytimes": "New York Times",
+    "insiderpaper": "Insider Paper",
+    "ReutersWorldChannel": "Reuters",
+    "bloomberg": "Bloomberg",
+    "BBCWorld": "BBC News",
+    "bbcpersian": "BBC Persian",
+    "idfofficial": "IDF Official"
+}
 
 EXCLUDE_KEYWORDS = [
     "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
-    "movie", "wedding", "stadium", "coach", "cup", "wrestling"
+    "movie", "wedding", "stadium", "coach", "cup", "wrestling", "fashion", "music"
 ]
 
 HISTORY_FILE = "sent_news.json"
@@ -85,11 +90,11 @@ async def process_and_translate_with_openrouter(raw_text):
         return None
 
     prompt = (
-        "تو مترجم و ویراستار حرفه‌ای اخبار سیاسی و نظامی هستی.\n"
-        "این خبر انگلیسی را با دقت کامل بخوان و عصاره اصلی آن را به فارسی روان و محاوره‌ای (شکسته‌نویسی طبیعی و عامیانه) ترجمه کن.\n\n"
+        "تو مترجم و ویراستار حرفه‌ای اخبار سیاسی، نظامی و راهبردی هستی.\n"
+        "این متن خبری را با دقت کامل بخوان و عصاره اصلی آن را به فارسی روان و محاوره‌ای (شکسته‌نویسی طبیعی و عامیانه اما کاملاً جدی، دقیق و استراتژیک) ترجمه کن.\n\n"
         f"متن اصلی: \"{raw_text}\"\n\n"
         "قوانین حیاتی و بسیار مهم:\n"
-        "۱. لحن خبر باید صرفاً روان و راحت باشد، اما به هیچ وجه نباید شوخ‌طبع، مسخره‌آلود، عامیانهِ توهین‌آمیز یا سبک باشد (اخبار کاملاً جدی و استراتژیک است).\n"
+        "۱. لحن خبر باید صرفاً روان و جذاب باشد، اما به هیچ وجه نباید شوخ‌طبع، مسخره‌آلود یا سبک باشد (اخبار کاملاً جدی و مهم است).\n"
         "۲. نام اشخاص، کشورها و مفاهیم سیاسی را دقیق و درست ترجمه کن و تغییر نده.\n"
         "۳. خروجی فقط و فقط در قالب ۱ جمله کوتاه، جذاب و کلیدی باشد.\n"
         "۴. به هیچ وجه از عبارت‌هایی مثل 'به نقل از...' یا ذکر منبع در متن خروجی استفاده نکن.\n"
@@ -126,71 +131,39 @@ async def process_and_translate_with_openrouter(raw_text):
 
     return None
 
-def parse_pub_date(pub_date_str):
-    if not pub_date_str:
-        return datetime.min.replace(tzinfo=ZoneInfo("UTC"))
-    try:
-        return parsedate_to_datetime(pub_date_str)
-    except:
-        return datetime.min.replace(tzinfo=ZoneInfo("UTC"))
-
-async def fetch_all_news_candidates(sent_history):
+async def fetch_telegram_channel_news(channel_username, channel_display_name, sent_history):
     candidates = []
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    url = f"https://t.me/s/{channel_username}"
 
     async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-        for feed_url in FALLBACK_RSS_FEEDS:
-            try:
-                r = await client.get(feed_url, headers=headers)
-                if r.status_code == 200:
-                    root = ET.fromstring(r.text)
-                    items = root.findall(".//item")
+        try:
+            r = await client.get(url, headers=headers)
+            if r.status_code == 200:
+                posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
+                
+                for post in posts[-10:]:
+                    clean_text = re.sub(r'<[^>]+>', ' ', post).strip()
+                    clean_text = re.sub(r'\s+', ' ', clean_text)
                     
-                    for item in items[:15]:
-                        title = item.find("title").text if item.find("title") is not None else ""
-                        description = item.find("description").text if item.find("description") is not None else ""
-                        link = item.find("link").text if item.find("link") is not None else ""
-                        pub_date_str = item.find("pubDate").text if item.find("pubDate") is not None else ""
-                        
-                        title = re.sub(r'<[^>]+>', '', title).strip()
-                        description = re.sub(r'<[^>]+>', '', description).strip()
+                    if not clean_text or len(clean_text) < 15:
+                        continue
 
-                        full_text = f"{title} {description}".lower()
+                    full_text_lower = clean_text.lower()
+                    if any(ex in full_text_lower for ex in EXCLUDE_KEYWORDS):
+                        continue
 
-                        if any(ex in full_text for ex in EXCLUDE_KEYWORDS):
-                            continue
+                    raw_id = f"{channel_username}_{clean_text[:40]}"
+                    if raw_id not in sent_history:
+                        candidates.append({
+                            "raw_text": clean_text,
+                            "source_name": channel_display_name,
+                            "raw_id": raw_id
+                        })
+        except Exception as e:
+            print(f"Error fetching channel {channel_username}: {e}")
 
-                        raw_id = title[:50]
-                        if title and raw_id not in sent_history:
-                            candidates.append({
-                                "raw_title": f"{title}\n{description}",
-                                "link": link if link else "https://t.me",
-                                "pub_date": parse_pub_date(pub_date_str),
-                                "source_name": "خبرگزاری معتبر",
-                                "raw_id": raw_id
-                            })
-            except Exception as e:
-                print(f"Error fetching feed {feed_url}: {e}")
-                continue
-
-    if not candidates:
-        print("ℹ️ No new news found.")
-        return None
-
-    candidates.sort(key=lambda x: x["pub_date"], reverse=True)
-    top_candidate = candidates[0]
-    print(f"🔥 Selected Top News: {top_candidate['raw_title'][:60]}...")
-
-    chatty_title = await process_and_translate_with_openrouter(top_candidate["raw_title"])
-
-    if chatty_title:
-        return {
-            "title": chatty_title,
-            "link": top_candidate["link"],
-            "raw": top_candidate["raw_id"]
-        }
-
-    return None
+    return candidates
 
 async def get_latest_important_news():
     sent_history = []
@@ -201,15 +174,27 @@ async def get_latest_important_news():
         except:
             sent_history = []
 
-    news = await fetch_all_news_candidates(sent_history)
+    all_candidates = []
+    
+    for username, display_name in NEWS_CHANNELS.items():
+        channel_posts = await fetch_telegram_channel_news(username, display_name, sent_history)
+        all_candidates.extend(channel_posts)
 
-    if news:
-        sent_history.append(news["raw"])
-        if len(sent_history) > 150:
-            sent_history = sent_history[-150:]
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(sent_history, f, ensure_ascii=False)
-        return news
+    if not all_candidates:
+        print("ℹ️ No new news found from channels.")
+        return None
+
+    top_candidate = all_candidates[0]
+    print(f"🔥 Selected News from [{top_candidate['source_name']}]: {top_candidate['raw_text'][:60]}...")
+
+    chatty_title = await process_and_translate_with_openrouter(top_candidate["raw_text"])
+
+    if chatty_title:
+        return {
+            "title": chatty_title,
+            "source": top_candidate["source_name"],
+            "raw": top_candidate["raw_id"]
+        }
 
     return None
 
@@ -252,7 +237,7 @@ def parse_proxy_url(url):
 async def scrape_proxies():
     found = set()
     async with httpx.AsyncClient(timeout=15, headers={"User-Agent": "Mozilla/5.0"}) as client:
-        for ch in CHANNELS:
+        for ch in PROXY_CHANNELS:
             try:
                 r = await client.get(f"https://t.me/s/{ch}")
                 if r.status_code == 200:
@@ -302,15 +287,16 @@ async def main():
     channel_handle = f"@{channel_clean}"
     channel_url = f"https://t.me/{channel_clean}"
 
+    # اصلاح شده: چیدمان و ایموجی برای جلوگیری از به هم ریختگی RTL/LTR
     msg = (
         f"⏰ <code>{time_str}</code>\n"
         f"🇮🇷 <code>{shamsi_date}</code>\n"
         f"🇺🇸 <code>{gregorian_date}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"📌 <b>{news['title']}</b>\n\n"
-        f"🔗 <a href='{news['link']}'>لینک خبر</a>\n"
+        f"🌐 <b>منبع:</b> {news['source']}\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"اخبار یک‌خطی + پروکسی: <a href='{channel_url}'><b>{channel_handle}</b></a>"
+        f"📢 کانال ما: <a href='{channel_url}'><b>{channel_handle}</b></a>"
     )
 
     keyboard_inline = []
