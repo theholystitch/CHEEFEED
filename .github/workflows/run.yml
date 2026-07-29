@@ -2,8 +2,11 @@ name: Auto Post News & Proxies
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   run-bot:
@@ -33,5 +36,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add sent_news.json || true
-          git commit -m "Update sent news history" || true
+          git diff --staged --quiet || git commit -m "Update sent news history"
           git push || true
