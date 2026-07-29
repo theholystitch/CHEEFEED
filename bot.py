@@ -103,13 +103,12 @@ async def process_and_translate_with_openrouter(raw_text):
     if not OPENROUTER_API_KEY:
         return None
 
-    # پاکسازی اولیه متن خام از لینک‌های احتمالی داخل پست تلگرام
     raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
 
     prompt = (
-        "Translate and rewrite the following news text into a single, clean sentence in **Semi-Formal & Smooth Persian (رسمی و روان - نه خیلی کتابی و نه خیلی کوچه بازاری)**. "
-        "Keep it professional yet engaging, and completely omit any URLs, sources, or external links from the text. "
-        "CRITICAL: Output ONLY the Persian sentence. Do NOT include safety warnings, metadata, or phrases like 'User Safety'."
+        "Summarize the following news text into a VERY SHORT, one-line headline in **Semi-Formal Persian (رسمی و روان)**. "
+        "Keep it extremely brief, remove all minor details, numbers, names of small cities, and extra explanations. Just the core essence in one short sentence. "
+        "CRITICAL: Output ONLY the short Persian sentence. Do NOT include safety warnings, metadata, URLs, or phrases like 'User Safety'."
         f"\n\nText: {raw_text_clean}"
     )
 
@@ -124,7 +123,7 @@ async def process_and_translate_with_openrouter(raw_text):
     payload = {
         "model": "openrouter/free",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3
+        "temperature": 0.2
     }
 
     try:
