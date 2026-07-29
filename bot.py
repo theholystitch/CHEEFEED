@@ -103,11 +103,14 @@ async def process_and_translate_with_openrouter(raw_text):
     if not OPENROUTER_API_KEY:
         return None
 
+    # پاکسازی اولیه متن خام از لینک‌های احتمالی داخل پست تلگرام
+    raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
+
     prompt = (
-        "Translate and rewrite the following news text into a single, clean sentence in **Conversational Persian (زبان محاوره‌ای و عامیانه)**. "
-        "Make it sound natural and casual, like how friends talk. "
+        "Translate and rewrite the following news text into a single, clean sentence in **Semi-Formal & Smooth Persian (رسمی و روان - نه خیلی کتابی و نه خیلی کوچه بازاری)**. "
+        "Keep it professional yet engaging, and completely omit any URLs, sources, or external links from the text. "
         "CRITICAL: Output ONLY the Persian sentence. Do NOT include safety warnings, metadata, or phrases like 'User Safety'."
-        f"\n\nText: {raw_text}"
+        f"\n\nText: {raw_text_clean}"
     )
 
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -121,7 +124,7 @@ async def process_and_translate_with_openrouter(raw_text):
     payload = {
         "model": "openrouter/free",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.4
+        "temperature": 0.3
     }
 
     try:
@@ -173,7 +176,6 @@ async def get_latest_important_news():
         except:
             sent_history = []
 
-    # ترکیب و تصادفی کردن کانال‌ها تا ربات به یک کانال خاص قفل نشود
     channels_list = list(NEWS_CHANNELS.items())
     random.shuffle(channels_list)
 
