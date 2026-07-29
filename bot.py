@@ -107,10 +107,10 @@ async def process_and_translate_with_openrouter(raw_text):
     raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
 
     prompt = (
-        "Analyze this news. FIRST, check if it is directly related to **Iran, USA, or Israel** (politics, military, conflicts, or diplomacy). "
+        "Analyze this news. FIRST, check if it is directly related to **Iran, USA, or Israel** (politics, military, conflicts, attacks, or diplomacy). "
         "If it is NOT related to Iran, USA, or Israel, reply with the exact word: IGNORE. "
-        "If it IS related, rewrite it into a clear, direct, and concise sentence in **Semi-Formal Persian (رسمی و روان)**. "
-        "Cut out nested quotes, long background details, or minor numbers. Make it direct (e.g., instead of 'X stated that Y said...', just say 'X announced that...'). Keep it within 1 to 2 short lines. "
+        "If it IS related, rewrite it into a **complete, clear, and fully meaningful sentence** in **Semi-Formal Persian (رسمی و روان)**. "
+        "Do NOT write isolated, cryptic words (like just 'موشک' or 'حمله'). Write a proper, complete sentence explaining the core action clearly (e.g., 'شلیک چند فروند موشک به سمت...'). Keep it within 1 to 2 short lines. "
         "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
         f"\n\nText: {raw_text_clean}"
     )
