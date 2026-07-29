@@ -111,18 +111,13 @@ async def process_and_translate_with_openrouter(raw_text):
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            print("🔄 Requesting translation from OpenRouter...")
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 200:
                 data = response.json()
                 text = data["choices"][0]["message"]["content"].strip().replace('"', '')
-                print(f"✨ OpenRouter Output: {text}")
                 return text
-            else:
-                print(f"⚠️ OpenRouter Error Status {response.status_code}: {response.text}")
     except Exception as err:
         print(f"❌ OpenRouter Request Error: {err}")
-
     return None
 
 async def fetch_telegram_channel_news(channel_username, channel_display_name, sent_history):
@@ -134,15 +129,11 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
-                
-                # بررسی پست‌های آخر (از جدید به قدیم) برای پیدا کردن اولین پستی که ارسال نشده
                 for post in reversed(posts[-5:]):
                     clean_text = re.sub(r'<[^>]+>', ' ', post).strip()
                     clean_text = re.sub(r'\s+', ' ', clean_text)
-                    
                     if not clean_text or len(clean_text) < 15:
                         continue
-
                     full_text_lower = clean_text.lower()
                     if any(ex in full_text_lower for ex in EXCLUDE_KEYWORDS):
                         continue
@@ -156,7 +147,6 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
                         }
         except Exception as e:
             print(f"Error fetching channel {channel_username}: {e}")
-
     return None
 
 async def get_latest_important_news():
@@ -168,14 +158,12 @@ async def get_latest_important_news():
         except:
             sent_history = []
 
-    # جستجوی کانال‌ها برای پیدا کردن نخستین پستی که در تاریخچه نیست
     for username, display_name in NEWS_CHANNELS.items():
         candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
         if candidate:
-            print(f"🔥 Selected News from [{candidate['source_name']}]: {candidate['raw_text'][:60]}...")
+            print(f"🔥 Selected News from [{candidate['source_name']}]")
             chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
             if chatty_title:
-                # اضافه کردن به تاریخچه و ذخیره
                 sent_history.append(candidate["raw_id"])
                 if len(sent_history) > 100:
                     sent_history = sent_history[-100:]
@@ -189,7 +177,6 @@ async def get_latest_important_news():
                     "title": chatty_title,
                     "source": candidate["source_name"]
                 }
-
     return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=3):
@@ -197,10 +184,7 @@ async def check_proxy_and_get_country(client, host, port, timeout=3):
         loop = asyncio.get_event_loop()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setblocking(False)
-        await asyncio.wait_for(
-            loop.sock_connect(sock, (host, int(port))),
-            timeout=timeout
-        )
+        await asyncio.wait_for(loop.sock_connect(sock, (host, int(port))), timeout=timeout)
         sock.close()
         
         flag = "🔌"
@@ -211,7 +195,6 @@ async def check_proxy_and_get_country(client, host, port, timeout=3):
                 flag = get_flag_emoji(cc)
         except:
             pass
-
         return True, flag
     except:
         return False, "🔌"
@@ -244,7 +227,7 @@ async def scrape_proxies():
                 print(f"Error scraping {ch}: {e}")
     return list(found)
 
-async def main():
+async def job():
     if not BOT_TOKEN or not CHAT_ID:
         print("❌ Error: BOT_TOKEN or CHAT_ID missing!")
         return
@@ -300,7 +283,6 @@ async def main():
         if len(row) == 2:
             keyboard_inline.append(row)
             row = []
-            
     if row:
         keyboard_inline.append(row)
 
@@ -318,6 +300,17 @@ async def main():
         r = await client.post(telegram_url, json=payload)
         if r.status_code == 200:
             print("🚀 Text message sent successfully!")
+
+async def main():
+    print("🤖 Bot started in continuous loop mode...")
+    while True:
+        try:
+            await job()
+        except Exception as e:
+            print(f"❌ Error in loop: {e}")
+        
+        print("⏳ Waiting 15 minutes for the next run...")
+        await asyncio.sleep(900) # ۱۵ دقیقه
 
 if __name__ == "__main__":
     asyncio.run(main())
