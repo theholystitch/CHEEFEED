@@ -30,14 +30,12 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
-# سرورهای Nitter برای خواندن فید RSS توییتر
 NITTER_SERVERS = [
     "https://nitter.poast.org",
     "https://nitter.privacydev.net",
     "https://nitter.freedit.eu"
 ]
 
-# 🎯 اکانت‌های توییتری منتخب (اخبار جدی، نظامی، منطقه‌ای و بین‌المللی)
 TWITTER_ACCOUNTS = [
     "ClashReport", 
     "Osint613", 
@@ -67,7 +65,7 @@ def gregorian_to_jalali(gy, gm, gd):
         jy = 0
         gy -= 621
     gy2 = gy + 1 if gm > 2 else gy
-    days = (365 * gy) + ((gy2 + 3) // 4) - ((gy2 + 99) // 100) + ((gy2 + 399) // 400) - 80 + gd + g_d_m[gm - 1]
+    days = (365 * gy) + ((gy2 + 3) // 4) - ((gy2 + 99) // 100) - ((gy2 + 399) // 400) - 80 + gd + g_d_m[gm - 1]
     jy += 33 * (days // 12053)
     days %= 12053
     jy += 4 * (days // 1461)
@@ -173,7 +171,6 @@ async def fetch_all_news_candidates(sent_history):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        # جمع‌آوری اخبار از اکانت‌های توییتر تعیین‌شده
         for server in NITTER_SERVERS:
             for acc in TWITTER_ACCOUNTS:
                 try:
@@ -181,7 +178,8 @@ async def fetch_all_news_candidates(sent_history):
                     if r.status_code == 200:
                         root = ET.fromstring(r.text)
                         items = root.findall("./channel/item")
-                        for item in items[:5]:
+                        # افزایش تعداد بررسی توییت‌ها از هر اکانت به 10 پست آخر تا دستمان بازتر باشد
+                        for item in items[:10]:
                             title = item.find("title").text if item.find("title") is not None else ""
                             description = item.find("description").text if item.find("description") is not None else ""
                             link = item.find("link").text if item.find("link") is not None else ""
@@ -195,27 +193,29 @@ async def fetch_all_news_candidates(sent_history):
 
                             full_text = f"{title} {description}".lower()
 
-                            # رد کردن کلمات ممنوعه (غیر سیاسی/ورزشی)
                             if any(ex in full_text for ex in EXCLUDE_KEYWORDS):
                                 continue
 
-                            if title and title not in sent_history:
+                            # بررسی اینکه این توییت قبلاً ارسال نشده باشد
+                            raw_id = f"{title}"
+                            if title and raw_id not in sent_history:
                                 candidates.append({
                                     "raw_title": f"{title}\n{description}",
                                     "link": final_source_url,
                                     "pub_date": parse_pub_date(pub_date_str),
                                     "source_name": f"توییتر (@{acc})",
                                     "media_url": media_url,
-                                    "media_type": media_type
+                                    "media_type": media_type,
+                                    "raw_id": raw_id
                                 })
                 except Exception:
                     pass
 
     if not candidates:
-        print("ℹ️ No new tweets found.")
+        print("ℹ️ No new tweets found in this check.")
         return None
 
-    # مرتب‌سازی بر اساس جدیدترین تاریخ
+    # مرتب‌سازی بر اساس جدیدترین تاریخ انتشار
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
 
     top_candidate = candidates[0]
@@ -227,7 +227,7 @@ async def fetch_all_news_candidates(sent_history):
         return {
             "title": chatty_title,
             "link": top_candidate["link"],
-            "raw": top_candidate["raw_title"],
+            "raw": top_candidate["raw_id"],
             "media_url": top_candidate["media_url"],
             "media_type": top_candidate["media_type"]
         }
@@ -247,8 +247,8 @@ async def get_latest_important_news():
 
     if news:
         sent_history.append(news["raw"])
-        if len(sent_history) > 100:
-            sent_history = sent_history[-100:]
+        if len(sent_history) > 150:
+            sent_history = sent_history[-150:]
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(sent_history, f, ensure_ascii=False)
         return news
@@ -340,7 +340,7 @@ async def main():
     gregorian_date = now_tehran.strftime("%Y/%m/%d")
     time_str = now_tehran.strftime("%H:%M")
 
-    channel_clean = CHAT_ID.replace('@', '')
+    channel_clean = CHAT_ID.replace('@', '', 1)
     channel_handle = f"@{channel_clean}"
     channel_url = f"https://t.me/{channel_clean}"
 
@@ -400,10 +400,9 @@ async def main():
                 "reply_markup": reply_markup,
                 "disable_web_page_preview": True
             }
-            r = await client.post(telegram_url, json=payload)
+            r = await client.post(telegram_url, json.post if hasattr(client, 'post') else None, json=payload) if False else await client.post(telegram_url, json=payload)
             if r.status_code == 200:
                 print("🚀 Text message sent successfully!")
 
 if __name__ == "__main__":
     asyncio.run(main())
-
