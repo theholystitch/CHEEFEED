@@ -106,9 +106,11 @@ async def process_and_translate_with_openrouter(raw_text):
     raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
 
     prompt = (
-        "Summarize the following news text into a VERY SHORT, one-line headline in **Semi-Formal Persian (رسمی و روان)**. "
-        "Keep it extremely brief, remove all minor details, numbers, names of small cities, and extra explanations. Just the core essence in one short sentence. "
-        "CRITICAL: Output ONLY the short Persian sentence. Do NOT include safety warnings, metadata, URLs, or phrases like 'User Safety'."
+        "Analyze this news. FIRST, check if it is directly related to **Iran, USA, or Israel** (politics, military, conflicts, or diplomacy). "
+        "If it is NOT related to Iran, USA, or Israel, reply with the exact word: IGNORE. "
+        "If it IS related, rewrite it into a clear, direct, and concise sentence in **Semi-Formal Persian (رسمی و روان)**. "
+        "Cut out nested quotes, long background details, or minor numbers. Make it direct (e.g., instead of 'X stated that Y said...', just say 'X announced that...'). Keep it within 1 to 2 short lines. "
+        "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
         f"\n\nText: {raw_text_clean}"
     )
 
@@ -132,6 +134,8 @@ async def process_and_translate_with_openrouter(raw_text):
             if response.status_code == 200:
                 data = response.json()
                 text = data["choices"][0]["message"]["content"].strip().replace('"', '')
+                if "IGNORE" in text or len(text) < 5:
+                    return None
                 return text
     except Exception as err:
         print(f"❌ OpenRouter Request Error: {err}")
@@ -181,9 +185,9 @@ async def get_latest_important_news():
     for username, display_name in channels_list:
         candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
         if candidate:
-            print(f"🔥 Selected News from [{candidate['source_name']}]")
             chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
             if chatty_title and "Safety" not in chatty_title:
+                print(f"🔥 Selected Iran/USA/Israel News from [{candidate['source_name']}]")
                 sent_history.append(candidate["raw_id"])
                 if len(sent_history) > 100:
                     sent_history = sent_history[-100:]
