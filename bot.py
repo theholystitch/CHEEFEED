@@ -4,6 +4,7 @@ import re
 import json
 import socket
 import asyncio
+import random
 import httpx
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -172,7 +173,11 @@ async def get_latest_important_news():
         except:
             sent_history = []
 
-    for username, display_name in NEWS_CHANNELS.items():
+    # ترکیب و تصادفی کردن کانال‌ها تا ربات به یک کانال خاص قفل نشود
+    channels_list = list(NEWS_CHANNELS.items())
+    random.shuffle(channels_list)
+
+    for username, display_name in channels_list:
         candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
         if candidate:
             print(f"🔥 Selected News from [{candidate['source_name']}]")
