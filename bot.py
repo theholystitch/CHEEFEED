@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
-from urllib.parse import parse_qs, urlparse, quote
+from urllib.parse import parse_qs, urlparse
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -30,28 +30,25 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
+# سرورهای Nitter برای خواندن فید RSS توییتر
 NITTER_SERVERS = [
     "https://nitter.poast.org",
     "https://nitter.privacydev.net",
     "https://nitter.freedit.eu"
 ]
 
-TWITTER_ACCOUNTS = ["clashreport", "Osint613", "Faytuks", "WarMonitors"]
-
-IRAN_KEYWORDS = ["iran", "tehran", "irgc", "iranian", "persian"]
-RELATED_KEYWORDS = [
-    "israel", "idf", "tel aviv", "us", "usa", "centcom", "pentagon", 
-    "american", "washington", "strike", "drone", "missile", "nuclear", 
-    "sanctions", "military", "syria", "lebanon", "gaza", "houthis"
+# 🎯 اکانت‌های توییتری منتخب (اخبار جدی، نظامی، منطقه‌ای و بین‌المللی)
+TWITTER_ACCOUNTS = [
+    "ClashReport", 
+    "Osint613", 
+    "MiddleEastEye", 
+    "AlArabiya_Fa"
 ]
 
 EXCLUDE_KEYWORDS = [
     "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
     "movie", "wedding", "stadium", "coach", "cup", "wrestling"
 ]
-
-POLITICAL_SEARCH_QUERY = 'Iran AND (Israel OR "United States" OR US OR military OR nuclear OR strike OR sanctions)'
-NEWS_RSS_URL = f"https://news.google.com/rss/search?q={quote(POLITICAL_SEARCH_QUERY)}&hl=en-US&gl=US&ceid=US:en"
 
 HISTORY_FILE = "sent_news.json"
 
@@ -90,17 +87,17 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-async def process_and_translate_with_openrouter(raw_text, source_hint="رسانه‌های بین‌المللی"):
+async def process_and_translate_with_openrouter(raw_text):
     if not OPENROUTER_API_KEY:
         print("⚠️ OPENROUTER_API_KEY is missing!")
         return None
 
     prompt = (
-        "تو مترجم و ویراستار حرفه‌ای اخبار سیاسی هستی.\n"
-        "این خبر انگلیسی را با دقت کامل بخوان و عصاره اصلی آن را به فارسی روان و محاوره‌ای (شکسته‌نویسی طبیعی و عامیانه) ترجمه کن.\n\n"
-        f"متن خبر اصلی: \"{raw_text}\"\n\n"
+        "تو مترجم و ویراستار حرفه‌ای اخبار سیاسی و نظامی هستی.\n"
+        "این توییت یا خبر انگلیسی را با دقت کامل بخوان و عصاره اصلی آن را به فارسی روان و محاوره‌ای (شکسته‌نویسی طبیعی و عامیانه) ترجمه کن.\n\n"
+        f"متن اصلی: \"{raw_text}\"\n\n"
         "قوانین حیاتی و بسیار مهم:\n"
-        "۱. لحن خبر باید صرفاً روان و راحت باشد، اما به هیچ وجه نباید شوخ‌طبع، مسخره‌آلود، عامیانهِ توهین‌آمیز یا سبک باشد (اخبار کاملاً جدی و سیاسی است).\n"
+        "۱. لحن خبر باید صرفاً روان و راحت باشد، اما به هیچ وجه نباید شوخ‌طبع، مسخره‌آلود، عامیانهِ توهین‌آمیز یا سبک باشد (اخبار کاملاً جدی و استراتژیک است).\n"
         "۲. نام اشخاص، کشورها و مفاهیم سیاسی را دقیق و درست ترجمه کن و تغییر نده.\n"
         "۳. خروجی فقط و فقط در قالب ۱ جمله کوتاه، جذاب و کلیدی باشد.\n"
         "۴. به هیچ وجه از عبارت‌هایی مثل 'به نقل از...' یا ذکر منبع در متن خروجی استفاده نکن.\n"
@@ -117,15 +114,13 @@ async def process_and_translate_with_openrouter(raw_text, source_hint="رسان�
     
     payload = {
         "model": "openrouter/free",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3
     }
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            print("🔄 Requesting translation from OpenRouter (Auto Free Model)...")
+            print("🔄 Requesting translation from OpenRouter...")
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 200:
                 data = response.json()
@@ -178,7 +173,7 @@ async def fetch_all_news_candidates(sent_history):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        # ۱. جمع‌آوری اخبار از توییتر (Nitter)
+        # جمع‌آوری اخبار از اکانت‌های توییتر تعیین‌شده
         for server in NITTER_SERVERS:
             for acc in TWITTER_ACCOUNTS:
                 try:
@@ -200,13 +195,11 @@ async def fetch_all_news_candidates(sent_history):
 
                             full_text = f"{title} {description}".lower()
 
+                            # رد کردن کلمات ممنوعه (غیر سیاسی/ورزشی)
                             if any(ex in full_text for ex in EXCLUDE_KEYWORDS):
                                 continue
 
-                            has_iran = any(kw in full_text for kw in IRAN_KEYWORDS)
-                            has_related = any(kw in full_text for kw in RELATED_KEYWORDS)
-
-                            if (has_iran or has_related) and title not in sent_history:
+                            if title and title not in sent_history:
                                 candidates.append({
                                     "raw_title": f"{title}\n{description}",
                                     "link": final_source_url,
@@ -218,49 +211,17 @@ async def fetch_all_news_candidates(sent_history):
                 except Exception:
                     pass
 
-        # ۲. جمع‌آوری اخبار از Google News
-        try:
-            r = await client.get(NEWS_RSS_URL, headers=headers)
-            if r.status_code == 200:
-                root = ET.fromstring(r.text)
-                items = root.findall("./channel/item")
-                for item in items[:7]:
-                    title = item.find("title").text if item.find("title") is not None else ""
-                    link = item.find("link").text if item.find("link") is not None else ""
-                    pub_date_str = item.find("pubDate").text if item.find("pubDate") is not None else ""
-                    clean_title = re.sub(r'\s*-\s*[^-]+$', '', title).strip()
-
-                    lower_title = clean_title.lower()
-                    if any(ex in lower_title for ex in EXCLUDE_KEYWORDS):
-                        continue
-
-                    if clean_title and clean_title not in sent_history:
-                        candidates.append({
-                            "raw_title": clean_title,
-                            "link": link,
-                            "pub_date": parse_pub_date(pub_date_str),
-                            "source_name": "رسانه‌های بین‌المللی",
-                            "media_url": None,
-                            "media_type": None
-                        })
-        except Exception as e:
-            print(f"Google News error: {e}")
-
     if not candidates:
-        print("ℹ️ No new news candidates found.")
+        print("ℹ️ No new tweets found.")
         return None
 
-    # ۳. مرتب‌سازی بر اساس تازه‌ترین تاریخ انتشار
+    # مرتب‌سازی بر اساس جدیدترین تاریخ
     candidates.sort(key=lambda x: x["pub_date"], reverse=True)
 
-    # 🎯 ارسال فقط جدیدترین خبر به OpenRouter
     top_candidate = candidates[0]
-    print(f"🔥 Selected Top News from [{top_candidate['source_name']}]: {top_candidate['raw_title'][:60]}...")
+    print(f"🔥 Selected Top Tweet from [{top_candidate['source_name']}]: {top_candidate['raw_title'][:60]}...")
 
-    chatty_title = await process_and_translate_with_openrouter(
-        top_candidate["raw_title"], 
-        source_hint=top_candidate["source_name"]
-    )
+    chatty_title = await process_and_translate_with_openrouter(top_candidate["raw_title"])
 
     if chatty_title:
         return {
@@ -445,3 +406,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
