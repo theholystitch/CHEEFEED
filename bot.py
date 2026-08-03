@@ -33,7 +33,10 @@ PATTERNS = [
 NEWS_CHANNELS = {
     "persiannbloomberg": "Bloomberg فارسی",
     "presstv": "Press TV",
-    "MiddleEastEye_TG": "Middle East Eye"
+    "MiddleEastEye_TG": "Middle East Eye",
+    "farsna": "فارس",
+    "Tasnimnews": "تسنیم",
+    "abdimedianet": "عبدی مدیا"
 }
 
 EXCLUDE_KEYWORDS = [
@@ -102,7 +105,6 @@ async def process_and_translate_with_openrouter(raw_text):
     if not raw_text_clean:
         return None
 
-    # اولویت اول: OpenRouter
     if OPENROUTER_API_KEY:
         prompt = (
             "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
@@ -144,7 +146,6 @@ async def process_and_translate_with_openrouter(raw_text):
         except Exception as e:
             print(f"❌ OpenRouter Exception: {e} -> Falling back to structured translation")
 
-    # فیلتر کلمات کلیدی برای ایران
     keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
     text_lower = raw_text_clean.lower()
     
@@ -152,13 +153,12 @@ async def process_and_translate_with_openrouter(raw_text):
         print("⚠️ News not related to Iran keywords, ignoring.")
         return None
 
-    # اولویت دوم (پشتیبان): ترجمه جمله‌به‌جمله و ساختاریافته برای جلوگیری از به‌هم‌ریختگی
     try:
         sentences = re.split(r'(?<=[.!?])\s+', raw_text_clean)
         translated_sentences = []
         translator = GoogleTranslator(source='auto', target='fa')
         
-        for s in sentences[:2]: # فقط دو جمله اول برای جلوگیری از طولانی شدن
+        for s in sentences[:2]:
             s = s.strip()
             if len(s) > 3:
                 tr = translator.translate(s)
@@ -434,4 +434,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
