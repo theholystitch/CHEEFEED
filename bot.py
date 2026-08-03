@@ -99,6 +99,7 @@ async def process_and_translate_with_openrouter(raw_text):
     if not raw_text_clean:
         return None
 
+    # اول تلاش با OpenRouter
     if OPENROUTER_API_KEY:
         prompt = (
             "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
@@ -136,9 +137,29 @@ async def process_and_translate_with_openrouter(raw_text):
                         return None
                     return text
                 else:
-                    print(f"⚠️ OpenRouter Error Body: {response.text}")
+                    print(f"⚠️ OpenRouter Error Body: {response.text} -> Falling back to Google Translator")
         except Exception as e:
-            print(f"❌ OpenRouter Exception: {e}")
+            print(f"❌ OpenRouter Exception: {e} -> Falling back to Google Translator")
+
+    # اگر OpenRouter خطا داد یا کلید نبود، پشتیبان: فیلتر کلمات کلیدی و ترجمه با گوگل
+    keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
+    text_lower = raw_text_clean.lower()
+    
+    if not any(kw in text_lower for kw in keywords_to_check):
+        print("⚠️ News not related to Iran keywords, ignoring.")
+        return None
+
+    try:
+        translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
+        if translated_text and len(translated_text) > 5:
+            sentences = [s.strip() for s in re.split(r'[.!?]+\s*', translated_text) if s.strip()]
+            short_text = ". ".join(sentences[:2])
+            if short_text and not short_text.endswith('.'):
+                short_text += "."
+            print(f"🌐 Google Translator Output: {short_text}")
+            return short_text
+    except Exception as e:
+        print(f"❌ Google Translator Error: {e}")
 
     return None
 
@@ -177,7 +198,7 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
                             "raw_id": raw_id,
-                    "photo_url": photo_url
+                            "photo_url": photo_url
                         }
         except Exception as e:
             print(f"❌ Error fetching channel {channel_username}: {e}")
