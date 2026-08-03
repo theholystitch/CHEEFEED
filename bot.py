@@ -1,4 +1,3 @@
-کانال روزنامه شرق (SharghDaily) با نام فارسی شرق به لیست منابع خبری اضافه شد:
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -102,6 +101,10 @@ async def process_and_translate_with_openrouter(raw_text):
     raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
     raw_text_clean = re.sub(r'http\S+', '', raw_text_clean)
     raw_text_clean = re.sub(r'@\w+', '', raw_text_clean)
+    
+    # حذف الگوهای مربوط به نام خبرنگار و محل در انتهای متن (مثل reports ... from ...)
+    raw_text_clean = re.sub(r'(?i)\b(reports?|correspondent|by)\s+[A-Z][a-zA-Z\s]+from\s+[A-Z][a-zA-Z\s]+\.?$', '', raw_text_clean)
+    
     raw_text_clean = re.sub(r'&[a-z0-9#]+;', ' ', raw_text_clean).strip()
     
     if not raw_text_clean:
@@ -191,13 +194,6 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             if r.status_code == 200:
                 messages = r.text.split('tgme_widget_message_wrap')
                 for message in reversed(messages[-3:]):
-                    photo_url = None
-                    img_match = re.search(r'background-image:\s*url\(\'(.*?)\'\)', message)
-                    if img_match:
-                        candidate_url = img_match.group(1)
-                        if candidate_url.startswith('http'):
-                            photo_url = candidate_url
-
                     text_match = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', message, re.DOTALL)
                     if not text_match:
                         continue
@@ -215,8 +211,7 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
                         return {
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
-                            "raw_id": raw_id,
-                            "photo_url": photo_url
+                            "raw_id": raw_id
                         }
         except Exception as e:
             print(f"❌ Error fetching channel {channel_username}: {e}")
@@ -250,8 +245,7 @@ async def get_latest_important_news():
 
                 return {
                     "title": chatty_title,
-                    "source": candidate["source_name"],
-                    "photo_url": candidate.get("photo_url")
+                    "source": candidate["source_name"]
                 }
     print("⚠️ No valid news passed filters or all were duplicates.")
     return None
@@ -381,42 +375,21 @@ async def job():
     reply_markup = {"inline_keyboard": keyboard_inline}
 
     async with httpx.AsyncClient(timeout=15) as client:
-        success = False
-        if news.get("photo_url"):
-            try:
-                telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-                payload = {
-                    "chat_id": CHAT_ID,
-                    "photo": news["photo_url"],
-                    "caption": msg,
-                    "parse_mode": "HTML",
-                    "reply_markup": reply_markup
-                }
-                res = await client.post(telegram_url, json=payload)
-                print(f"📤 SendPhoto Telegram status: {res.status_code}")
-                if res.status_code == 200:
-                    success = True
-                else:
-                    print(f"⚠️ SendPhoto Error Response: {res.text}")
-            except Exception as e:
-                print(f"❌ SendPhoto Exception: {e}")
-
-        if not success:
-            try:
-                telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                payload = {
-                    "chat_id": CHAT_ID,
-                    "text": msg,
-                    "parse_mode": "HTML",
-                    "reply_markup": reply_markup,
-                    "disable_web_page_preview": True
-                }
-                res = await client.post(telegram_url, json=payload)
-                print(f"📤 SendMessage Telegram status: {res.status_code}")
-                if res.status_code != 200:
-                    print(f"❌ SendMessage Error Response: {res.text}")
-            except Exception as e:
-                print(f"❌ SendMessage Exception: {e}")
+        try:
+            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": CHAT_ID,
+                "text": msg,
+                "parse_mode": "HTML",
+                "reply_markup": reply_markup,
+                "disable_web_page_preview": True
+            }
+            res = await client.post(telegram_url, json=payload)
+            print(f"📤 SendMessage Telegram status: {res.status_code}")
+            if res.status_code != 200:
+                print(f"❌ SendMessage Error Response: {res.text}")
+        except Exception as e:
+            print(f"❌ SendMessage Exception: {e}")
     
     gc.collect()
 
@@ -436,4 +409,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
