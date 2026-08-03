@@ -18,11 +18,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# لیست جدید کانال‌های پروکسی شما
 PROXY_CHANNELS = [
-    "MTProtoProxies",
-    "ProxyMTProto",
-    "TelMTProto",
-    "iMTProto",
+    "Proxy_Qavi",
+    "ProxySkull",
 ]
 
 PATTERNS = [
@@ -32,15 +31,11 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
+# لیست جدید کانال‌های اخبار شما (حذف IDF و منابع قبلی)
 NEWS_CHANNELS = {
-    "ClashReport": "Clash Report",
-    "Alarabiya_far": "العربیه فارسی",
-    "bricsnews": "BRICS News",
-    "intelslava": "Intel Slava",
-    "insiderpaper": "Insider Paper",
-    "ReutersWorldChannel": "Reuters",
-    "bbcpersian": "BBC Persian",
-    "idfofficial": "IDF Official"
+    "persiannbloomberg": "Bloomberg فارسی",
+    "presstv": "Press TV",
+    "MiddleEastEye_TG": "Middle East Eye"
 }
 
 EXCLUDE_KEYWORDS = [
@@ -143,7 +138,7 @@ async def process_and_translate_with_openrouter(raw_text):
         except Exception:
             pass
 
-    keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian", "idf", "netanyahu"]
+    keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
     text_lower = raw_text_clean.lower()
     
     if not any(kw in text_lower for kw in keywords_to_check):
