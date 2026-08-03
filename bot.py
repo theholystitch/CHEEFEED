@@ -123,7 +123,7 @@ async def process_single_news_with_gemini(raw_text):
     for attempt in range(2):
         try:
             response = gemini_client.models.generate_content(
-                model='gemini-2.5-flash-lite',
+                model='gemini-2.0-flash',
                 contents=prompt,
             )
             text = response.text.strip().replace('"', '')
@@ -149,7 +149,6 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 messages = r.text.split('tgme_widget_message_wrap')
-                # فقط آخرین پیام را چک می‌کند تا درگیر پیام‌های قدیمی نشود
                 for message in reversed(messages[-1:]):
                     text_match = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', message, re.DOTALL)
                     if not text_match:
@@ -183,7 +182,6 @@ async def get_latest_important_news():
         except:
             sent_history = []
 
-    # فقط یک کانال را به صورت تصادفی برای بررسی انتخاب می‌کند تا درخواست اضافی به جمینای نرود
     channels_list = list(NEWS_CHANNELS.items())
     username, display_name = random.choice(channels_list)
 
