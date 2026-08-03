@@ -170,19 +170,20 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
         try:
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
-                # استخراج پست‌ها به همراه بخش‌های عکس و متن
-                posts = re.findall(r'<div class="tgme_widget_message_wrap[^>]*>(.*?)</div>\s*</div>\s*</div>', r.text, re.DOTALL)
-                if not posts:
-                    posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
-
-                for post_html in reversed(posts[-3:]):
-                    # استخراج عکس در صورت وجود (تگ background-image یا img)
+                messages = r.text.split('tgme_widget_message_wrap')
+                for message in reversed(messages[-3:]):
                     photo_url = None
-                    img_match = re.search(r'background-image:\s*url\(\'(.*?)\'\)', post_html)
+                    img_match = re.search(r'background-image:\s*url\(\'(.*?)\'\)', message)
                     if img_match:
-                        photo_url = img_match.group(1)
+                        candidate_url = img_match.group(1)
+                        if candidate_url.startswith('http'):
+                            photo_url = candidate_url
 
-                    clean_text = re.sub(r'<[^>]+>', ' ', post_html).strip()
+                    text_match = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', message, re.DOTALL)
+                    if not text_match:
+                        continue
+                    
+                    clean_text = re.sub(r'<[^>]+>', ' ', text_match.group(1)).strip()
                     clean_text = re.sub(r'\s+', ' ', clean_text)
                     if not clean_text or len(clean_text) < 15:
                         continue
@@ -355,27 +356,36 @@ async def job():
     reply_markup = {"inline_keyboard": keyboard_inline}
 
     async with httpx.AsyncClient(timeout=15) as client:
-        # بررسی اینکه آیا خبر عکس دارد یا خیر
+        success = False
         if news.get("photo_url"):
-            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-            payload = {
-                "chat_id": CHAT_ID,
-                "photo": news["photo_url"],
-                "caption": msg,
-                "parse_mode": "HTML",
-                "reply_markup": reply_markup
-            }
-        else:
-            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            payload = {
-                "chat_id": CHAT_ID,
-                "text": msg,
-                "parse_mode": "HTML",
-                "reply_markup": reply_markup,
-                "disable_web_page_preview": True
-            }
-        
-        await client.post(telegram_url, json=payload)
+            try:
+                telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+                payload = {
+                    "chat_id": CHAT_ID,
+                    "photo": news["photo_url"],
+                    "caption": msg,
+                    "parse_mode": "HTML",
+                    "reply_markup": reply_markup
+                }
+                res = await client.post(telegram_url, json=payload)
+                if res.status_code == 200:
+                    success = True
+            except:
+                pass
+
+        if not success:
+            try:
+                telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                payload = {
+                    "chat_id": CHAT_ID,
+                    "text": msg,
+                    "parse_mode": "HTML",
+                    "reply_markup": reply_markup,
+                    "disable_web_page_preview": True
+                }
+                await client.post(telegram_url, json=payload)
+            except Exception as e:
+                print(f"❌ Send Message Error: {e}")
     
     gc.collect()
 
