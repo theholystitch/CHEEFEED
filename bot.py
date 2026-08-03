@@ -1,3 +1,5 @@
+برای اینکه یک دکمه‌ی مجزا و شکیل با متن «عضویت در کانال» در پایینِ دکمه‌های پروکسی قرار بگیرد، ساختار اینلاین کیبورد را به‌روزرسانی کردیم. این دکمه به صورت تمام‌عرض (یک ردیف کامل در پایین) زیر پروکسی‌ها قرار می‌گیرد تا به راحتی قابل کلیک باشد.
+کد کامل و نهایی bot.py را می‌توانید جایگزین فایل قبلی کنید:
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -113,13 +115,11 @@ async def process_and_translate_with_openrouter(raw_text):
         "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
         "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
         "If it IS related, rewrite it in **simple, direct, and conversational Persian (محاوره‌ای ساده، بدون شوخی، کاملاً بی‌طرف و بدون جانبه‌داری)**. "
-        "CRITICAL Country & Name Rules: "
-        "1. You MUST use standard, official, and commonly accepted Persian spellings for all countries and regions (e.g., use 'لبنان' instead of 'لیبنان'). Never use literal or Arabic-style deviations for country names. "
-        "2. Never use placeholder words like 'فلانی'. Always use actual, formal names of officials, politicians, and organizations. "
         "Sentence structure rules: "
-        "1. Write the sentence in a natural, fluent, and standard news order (Subject + Verb + Object). "
-        "2. For military actions use correct Persian verbs (e.g., 'سرنگون کرد', 'هدف قرار داد', 'حمله کرد'). "
-        "3. Keep it completely neutral, factual, and concise within 1 to 2 short lines. "
+        "1. Write the sentence in a natural, fluent, and standard news order (Subject + Verb + Object). Avoid weird word orders or broken phrases. "
+        "2. Never use placeholder words like 'فلانی'. Always use the actual, formal, and commonly accepted Persian equivalents for the names of officials, politicians, organizations, and countries. "
+        "3. For military actions use correct Persian verbs (e.g., 'سرنگون کرد', 'هدف قرار داد', 'حمله کرد') and avoid bizarre literal translations. "
+        "4. Keep it completely neutral, factual, and concise within 1 to 2 short lines. "
         "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس** and never just 'خلیج'. "
         "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
         f"\n\nText: {raw_text_clean}"
@@ -161,7 +161,7 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
-                for post in reversed(posts[-5:]):
+                for post in reversed(posts[-2:]):
                     clean_text = re.sub(r'<[^>]+>', ' ', post).strip()
                     clean_text = re.sub(r'\s+', ' ', clean_text)
                     if not clean_text or len(clean_text) < 15:
@@ -169,9 +169,7 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
                     if any(ex in clean_text.lower() for ex in EXCLUDE_KEYWORDS):
                         continue
 
-                    snippet = re.sub(r'\W+', '', clean_text)[:40].lower()
-                    raw_id = f"{channel_username}_{snippet}"
-                    
+                    raw_id = f"{channel_username}_{clean_text[:30]}"
                     if raw_id not in sent_history:
                         return {
                             "raw_text": clean_text,
@@ -200,8 +198,8 @@ async def get_latest_important_news():
             chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
             if chatty_title and "Safety" not in chatty_title:
                 sent_history.append(candidate["raw_id"])
-                if len(sent_history) > 200:
-                    sent_history = sent_history[-200:]
+                if len(sent_history) > 30:
+                    sent_history = sent_history[-30:]
                 try:
                     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                         json.dump(sent_history, f, ensure_ascii=False)
@@ -266,7 +264,6 @@ async def scrape_proxies():
 
 async def job():
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ Error: BOT_TOKEN or CHAT_ID is missing!")
         return
 
     raw_proxies = await scrape_proxies()
@@ -283,13 +280,11 @@ async def job():
                         break
 
     if not working_proxies:
-        print("⚠️ No working proxies found.")
         gc.collect()
         return
 
     news = await get_latest_important_news()
     if not news:
-        print("⚠️ No relevant news found or filtered out.")
         gc.collect()
         return
 
@@ -331,6 +326,7 @@ async def job():
     if row:
         keyboard_inline.append(row)
 
+    # اضافه کردن دکمه عضویت در کانال در آخرین ردیف به صورت تمام‌عرض
     keyboard_inline.append([
         {"text": "✨ عضویت در کانال Dickonnect", "url": channel_url}
     ])
@@ -346,8 +342,7 @@ async def job():
             "reply_markup": reply_markup,
             "disable_web_page_preview": True
         }
-        res = await client.post(telegram_url, json.dumps(payload), headers={"Content-Type": "application/json"})
-        print(f"Telegram API Response: {res.status_code} - {res.text}")
+        await client.post(telegram_url, json=payload)
     
     gc.collect()
 
@@ -355,12 +350,6 @@ async def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
     
-    try:
-        print("🤖 Bot started, running initial job...")
-        await job()
-    except Exception as e:
-        print(f"❌ Initial Job Error: {e}")
-
     while True:
         try:
             await job()
@@ -371,3 +360,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
