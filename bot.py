@@ -11,19 +11,21 @@ from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import gc
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# لیست کانال‌های منبع برای دریافت پروکسی
 PROXY_CHANNELS = [
     "MTProtoProxies",
     "ProxyMTProto",
     "TelMTProto",
     "iMTProto",
-    "tgproxy",
 ]
 
+# الگوهای پیدا کردن لینک پروکسی
 PATTERNS = [
     re.compile(r'https://t\.me/proxy\?[^\s<>"]+'),
     re.compile(r'tg://proxy\?[^\s<>"]+'),
@@ -31,21 +33,19 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
+# کانال‌های خبری برای دریافت و ترجمه خبر
 NEWS_CHANNELS = {
     "ClashReport": "Clash Report",
     "Alarabiya_far": "العربیه فارسی",
     "bricsnews": "BRICS News",
-    "disclosetv": "DiscloseTV",
     "intelslava": "Intel Slava",
-    "nytimes": "New York Times",
     "insiderpaper": "Insider Paper",
     "ReutersWorldChannel": "Reuters",
-    "bloomberg": "Bloomberg",
-    "BBCWorld": "BBC News",
     "bbcpersian": "BBC Persian",
     "idfofficial": "IDF Official"
 }
 
+# کلمات کلیدی برای حذف اخبار غیرمرتبط
 EXCLUDE_KEYWORDS = [
     "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
     "movie", "wedding", "stadium", "coach", "cup", "wrestling", "fashion", "music"
@@ -59,6 +59,9 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot is running successfully!")
+
+    def log_message(self, format, *args):
+        return
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 10000))
@@ -130,7 +133,7 @@ async def process_and_translate_with_openrouter(raw_text):
     }
 
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 200:
                 data = response.json()
@@ -139,28 +142,27 @@ async def process_and_translate_with_openrouter(raw_text):
                     return None
                 return text
     except Exception as err:
-        print(f"❌ OpenRouter Request Error: {err}")
+        print(f"❌ OpenRouter Error: {err}")
     return None
 
 async def fetch_telegram_channel_news(channel_username, channel_display_name, sent_history):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    headers = {"User-Agent": "Mozilla/5.0"}
     url = f"https://t.me/s/{channel_username}"
 
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
         try:
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
-                for post in reversed(posts[-5:]):
+                for post in reversed(posts[-2:]):
                     clean_text = re.sub(r'<[^>]+>', ' ', post).strip()
                     clean_text = re.sub(r'\s+', ' ', clean_text)
                     if not clean_text or len(clean_text) < 15:
                         continue
-                    full_text_lower = clean_text.lower()
-                    if any(ex in full_text_lower for ex in EXCLUDE_KEYWORDS):
+                    if any(ex in clean_text.lower() for ex in EXCLUDE_KEYWORDS):
                         continue
 
-                    raw_id = f"{channel_username}_{clean_text[:40]}"
+                    raw_id = f"{channel_username}_{clean_text[:30]}"
                     if raw_id not in sent_history:
                         return {
                             "raw_text": clean_text,
@@ -168,7 +170,7 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
                             "raw_id": raw_id
                         }
         except Exception as e:
-            print(f"Error fetching channel {channel_username}: {e}")
+            pass
     return None
 
 async def get_latest_important_news():
@@ -188,15 +190,14 @@ async def get_latest_important_news():
         if candidate:
             chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
             if chatty_title and "Safety" not in chatty_title:
-                print(f"🔥 Selected Iran-Centric News from [{candidate['source_name']}]")
                 sent_history.append(candidate["raw_id"])
-                if len(sent_history) > 100:
-                    sent_history = sent_history[-100:]
+                if len(sent_history) > 30:
+                    sent_history = sent_history[-30:]
                 try:
                     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-                        json.dump(sent_history, f, ensure_ascii=False, indent=2)
-                except Exception as e:
-                    print(f"Error saving history: {e}")
+                        json.dump(sent_history, f, ensure_ascii=False)
+                except:
+                    pass
 
                 return {
                     "title": chatty_title,
@@ -204,7 +205,7 @@ async def get_latest_important_news():
                 }
     return None
 
-async def check_proxy_and_get_country(client, host, port, timeout=3):
+async def check_proxy_and_get_country(client, host, port, timeout=2):
     try:
         loop = asyncio.get_event_loop()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -214,7 +215,7 @@ async def check_proxy_and_get_country(client, host, port, timeout=3):
         
         flag = "🔌"
         try:
-            res = await client.get(f"http://ip-api.com/json/{host}?fields=countryCode", timeout=2)
+            res = await client.get(f"http://ip-api.com/json/{host}?fields=countryCode", timeout=1.5)
             if res.status_code == 200:
                 cc = res.json().get("countryCode")
                 flag = get_flag_emoji(cc)
@@ -238,7 +239,7 @@ def parse_proxy_url(url):
 
 async def scrape_proxies():
     found = set()
-    async with httpx.AsyncClient(timeout=15, headers={"User-Agent": "Mozilla/5.0"}) as client:
+    async with httpx.AsyncClient(timeout=8, headers={"User-Agent": "Mozilla/5.0"}) as client:
         for ch in PROXY_CHANNELS:
             try:
                 r = await client.get(f"https://t.me/s/{ch}")
@@ -248,8 +249,10 @@ async def scrape_proxies():
                         for m in matches:
                             clean_url = m.replace("&amp;", "&")
                             found.add(clean_url)
-            except Exception as e:
-                print(f"Error scraping {ch}: {e}")
+                            if len(found) > 20: # کمی بیشتر اسکن می‌کنیم تا ۵ تای سالم پیدا کنیم
+                                break
+            except:
+                pass
     return list(found)
 
 async def job():
@@ -266,14 +269,16 @@ async def job():
                 is_ok, flag = await check_proxy_and_get_country(http_client, server, port)
                 if is_ok:
                     working_proxies.append({"url": p_url, "flag": flag})
-                    if len(working_proxies) >= 10:
+                    if len(working_proxies) >= 5:  # تنظیم شده روی ۵ پروکسی
                         break
 
     if not working_proxies:
+        gc.collect()
         return
 
     news = await get_latest_important_news()
     if not news:
+        gc.collect()
         return
 
     now_tehran = datetime.now(ZoneInfo("Asia/Tehran"))
@@ -301,15 +306,24 @@ async def job():
     for idx, proxy in enumerate(working_proxies, 1):
         button = {"text": f"{proxy['flag']} Proxy {idx:02d}", "url": proxy['url']}
         row.append(button)
-        if len(row) == 2:
-            keyboard_inline.append(row)
-            row = []
+        # برای ۵ دکمه، الگوی ۲، ۲، ۱ قشنگ‌تر میشه
+        if len(working_proxies) == 5:
+            if len(row) == 2 and len(keyboard_inline) < 2:
+                keyboard_inline.append(row)
+                row = []
+            elif len(row) == 1 and len(keyboard_inline) == 2:
+                keyboard_inline.append(row)
+                row = []
+        else: # حالت پیش‌فرض ۲ تایی برای سایر تعدادها
+            if len(row) == 2:
+                keyboard_inline.append(row)
+                row = []
     if row:
         keyboard_inline.append(row)
 
     reply_markup = {"inline_keyboard": keyboard_inline}
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": CHAT_ID,
@@ -319,6 +333,8 @@ async def job():
             "disable_web_page_preview": True
         }
         await client.post(telegram_url, json=payload)
+    
+    gc.collect()
 
 async def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
@@ -328,7 +344,8 @@ async def main():
         try:
             await job()
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"❌ Error: {e}")
+        gc.collect()
         await asyncio.sleep(900)
 
 if __name__ == "__main__":
