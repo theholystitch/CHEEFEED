@@ -351,6 +351,12 @@ async def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
     
+    # اجرای اولیه بلافاصله پس از روشن شدن ربات
+    try:
+        await job()
+    except Exception as e:
+        print(f"❌ Initial Job Error: {e}")
+
     while True:
         try:
             await job()
