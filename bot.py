@@ -1,3 +1,4 @@
+کانال روزنامه شرق (SharghDaily) با نام فارسی شرق به لیست منابع خبری اضافه شد:
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -36,7 +37,8 @@ NEWS_CHANNELS = {
     "MiddleEastEye_TG": "Middle East Eye",
     "farsna": "فارس",
     "Tasnimnews": "تسنیم",
-    "abdimedianet": "عبدی مدیا"
+    "abdimedianet": "عبدی مدیا",
+    "SharghDaily": "شرق"
 }
 
 EXCLUDE_KEYWORDS = [
@@ -434,3 +436,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
