@@ -101,25 +101,19 @@ def get_persian_date_digits(now):
     return f"{jy}/{jm:02d}/{jd:02d}"
 
 async def process_and_translate_with_openrouter(raw_text):
-    # پاکسازی عبارت‌های اضافی مثل JUST IN, Breaking و لینک‌ها
     raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
     raw_text_clean = re.sub(r'http\S+', '', raw_text_clean).strip()
     if not raw_text_clean:
         return None
 
-    # ۱. اولویت با هوش مصنوعی اصلی (OpenRouter)
     if OPENROUTER_API_KEY:
         prompt = (
             "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
             "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
-            "If it IS related, rewrite it in **simple, direct, and conversational Persian (محاوره‌ای ساده، بدون شوخی، کاملاً بی‌طرف و بدون جانبه‌داری)**. "
-            "Sentence structure rules: "
-            "1. Write the sentence in a natural, fluent, and standard news order (Subject + Verb + Object). Avoid weird word orders or broken phrases. "
-            "2. Never use placeholder words like 'فلانی'. Always use the actual, formal, and commonly accepted Persian equivalents for the names of officials, politicians, organizations, and countries. "
-            "3. For military actions use correct Persian verbs (e.g., 'سرنگون کرد', 'هدف قرار داد', 'حمله کرد') and avoid bizarre literal translations. "
-            "4. Keep it completely neutral, factual, and concise within 1 to 2 short lines. "
-            "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس** and never just 'خلیج'. "
-            "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
+            "If it IS related, rewrite it in **simple, direct, and concise Persian (محاوره‌ای ساده و خلاصه)**. "
+            "Keep it factual and within 1 to 2 sentences so it's not too long. "
+            "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس**. "
+            "CRITICAL: Output ONLY the Persian sentence or the word IGNORE."
             f"\n\nText: {raw_text_clean}"
         )
 
@@ -146,12 +140,9 @@ async def process_and_translate_with_openrouter(raw_text):
                     if "IGNORE" in text or len(text) < 5:
                         return None
                     return text
-                else:
-                    print("⚠️ OpenRouter error, switching to Google Translator fallback.")
         except Exception:
-            print("⚠️ OpenRouter exception, switching to Google Translator fallback.")
+            pass
 
-    # --- پشتیبان (Fallback) با مترجم گوگل + فیلتر سخت‌گیرانه ایران/اسرائیل ---
     keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian", "idf", "netanyahu"]
     text_lower = raw_text_clean.lower()
     
@@ -161,9 +152,10 @@ async def process_and_translate_with_openrouter(raw_text):
     try:
         translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
         if translated_text and len(translated_text) > 5:
-            # محدود کردن طول خبر به حداکثر 2 جمله
-            sentences = re.split(r'[.!?]+\s*', translated_text)
-            short_text = ". ".join(sentences[:2]).strip()
+            sentences = [s.strip() for s in re.split(r'[.!?]+\s*', translated_text) if s.strip()]
+            short_text = ". ".join(sentences[:2])
+            if short_text and not short_text.endswith('.'):
+                short_text += "."
             return short_text
     except Exception as e:
         print(f"❌ Google Translator Error: {e}")
@@ -178,9 +170,19 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
         try:
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
-                posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
-                for post in reversed(posts[-2:]):
-                    clean_text = re.sub(r'<[^>]+>', ' ', post).strip()
+                # استخراج پست‌ها به همراه بخش‌های عکس و متن
+                posts = re.findall(r'<div class="tgme_widget_message_wrap[^>]*>(.*?)</div>\s*</div>\s*</div>', r.text, re.DOTALL)
+                if not posts:
+                    posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
+
+                for post_html in reversed(posts[-3:]):
+                    # استخراج عکس در صورت وجود (تگ background-image یا img)
+                    photo_url = None
+                    img_match = re.search(r'background-image:\s*url\(\'(.*?)\'\)', post_html)
+                    if img_match:
+                        photo_url = img_match.group(1)
+
+                    clean_text = re.sub(r'<[^>]+>', ' ', post_html).strip()
                     clean_text = re.sub(r'\s+', ' ', clean_text)
                     if not clean_text or len(clean_text) < 15:
                         continue
@@ -192,7 +194,8 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
                         return {
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
-                            "raw_id": raw_id
+                            "raw_id": raw_id,
+                            "photo_url": photo_url
                         }
         except Exception as e:
             pass
@@ -226,7 +229,8 @@ async def get_latest_important_news():
 
                 return {
                     "title": chatty_title,
-                    "source": candidate["source_name"]
+                    "source": candidate["source_name"],
+                    "photo_url": candidate.get("photo_url")
                 }
     return None
 
@@ -351,14 +355,26 @@ async def job():
     reply_markup = {"inline_keyboard": keyboard_inline}
 
     async with httpx.AsyncClient(timeout=15) as client:
-        telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": CHAT_ID,
-            "text": msg,
-            "parse_mode": "HTML",
-            "reply_markup": reply_markup,
-            "disable_web_page_preview": True
-        }
+        # بررسی اینکه آیا خبر عکس دارد یا خیر
+        if news.get("photo_url"):
+            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+            payload = {
+                "chat_id": CHAT_ID,
+                "photo": news["photo_url"],
+                "caption": msg,
+                "parse_mode": "HTML",
+                "reply_markup": reply_markup
+            }
+        else:
+            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": CHAT_ID,
+                "text": msg,
+                "parse_mode": "HTML",
+                "reply_markup": reply_markup,
+                "disable_web_page_preview": True
+            }
+        
         await client.post(telegram_url, json=payload)
     
     gc.collect()
@@ -378,5 +394,4 @@ async def main():
         await asyncio.sleep(900)
 
 if __name__ == "__main__":
-    asyncio.run(main())
     asyncio.run(main())
