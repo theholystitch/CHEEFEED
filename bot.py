@@ -1,3 +1,6 @@
+برای جلوگیری از ارسال اخبار تکراری، مشکل اصلی این است که در کدهای قبلی، لیست اخبار ارسال‌شده (HISTORY_FILE) فقط ۳۰ خبر آخر را نگه می‌داشت و اگر ربات ری‌استارت می‌شد یا تعداد اخبار کانال‌های منبع زیاد بود، حافظه پاک می‌شد و خبرهای قبلی دوباره ارسال می‌شدند.
+برای حل این مشکل و افزایش ظرفیت حافظه (مثلاً ذخیره ۲۰۰ خبر آخر) و همچنین تمیزتر کردن کلید شناسایی اخبار، فایل bot.py را اصلاح کردم.
+کد کامل و نهایی زیر را جایگزین فایل bot.py کنید:
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -113,9 +116,11 @@ async def process_and_translate_with_openrouter(raw_text):
         "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
         "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
         "If it IS related, rewrite it in **simple, direct, and conversational Persian (محاوره‌ای ساده، بدون شوخی، کاملاً بی‌طرف و بدون جانبه‌داری)**. "
-        "Style rules: Never use placeholder words like 'فلانی'. Always use the actual, formal, and commonly accepted Persian equivalents for the names of officials, politicians, organizations, and countries. "
-        "For actions like shooting down drones or military equipment, use natural and correct Persian news verbs (e.g., 'سرنگون کرد', 'هدف قرار داد') and avoid bizarre literal translations like 'شکافت'. "
-        "Avoid formal literary words, avoid jokes, and keep it completely neutral and factual within 1 to 2 short lines. "
+        "Sentence structure rules: "
+        "1. Write the sentence in a natural, fluent, and standard news order (Subject + Verb + Object). Avoid weird word orders or broken phrases. "
+        "2. Never use placeholder words like 'فلانی'. Always use the actual, formal, and commonly accepted Persian equivalents for the names of officials, politicians, organizations, and countries. "
+        "3. For military actions use correct Persian verbs (e.g., 'سرنگون کرد', 'هدف قرار داد', 'حمله کرد') and avoid bizarre literal translations. "
+        "4. Keep it completely neutral, factual, and concise within 1 to 2 short lines. "
         "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس** and never just 'خلیج'. "
         "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
         f"\n\nText: {raw_text_clean}"
@@ -157,7 +162,7 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', r.text, re.DOTALL)
-                for post in reversed(posts[-2:]):
+                for post in reversed(posts[-5:]):
                     clean_text = re.sub(r'<[^>]+>', ' ', post).strip()
                     clean_text = re.sub(r'\s+', ' ', clean_text)
                     if not clean_text or len(clean_text) < 15:
@@ -165,7 +170,10 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
                     if any(ex in clean_text.lower() for ex in EXCLUDE_KEYWORDS):
                         continue
 
-                    raw_id = f"{channel_username}_{clean_text[:30]}"
+                    # ساخت یک کلید یکتا و استانداردتر بر اساس حروف اول متن
+                    snippet = re.sub(r'\W+', '', clean_text)[:40].lower()
+                    raw_id = f"{channel_username}_{snippet}"
+                    
                     if raw_id not in sent_history:
                         return {
                             "raw_text": clean_text,
@@ -194,8 +202,9 @@ async def get_latest_important_news():
             chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
             if chatty_title and "Safety" not in chatty_title:
                 sent_history.append(candidate["raw_id"])
-                if len(sent_history) > 30:
-                    sent_history = sent_history[-30:]
+                # افزایش ظرفیت حافظه به ۲۰۰ خبر اخیر برای جلوگیری صددرصدی از تکرار
+                if len(sent_history) > 200:
+                    sent_history = sent_history[-200:]
                 try:
                     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                         json.dump(sent_history, f, ensure_ascii=False)
@@ -289,9 +298,8 @@ async def job():
     gregorian_date = now_tehran.strftime("%Y/%m/%d")
     time_str = now_tehran.strftime("%H:%M")
 
-    channel_clean = CHAT_ID.replace('@', '', 1)
-    channel_handle = f"@{channel_clean}"
-    channel_url = f"https://t.me/{channel_clean}"
+    channel_handle = "@Dickonnect"
+    channel_url = "https://t.me/Dickonnect"
 
     msg = (
         f"⏰ <code>{time_str}</code>\n"
@@ -307,7 +315,7 @@ async def job():
     keyboard_inline = []
     row = []
     for idx, proxy in enumerate(working_proxies, 1):
-        button = {"text": f"{proxy['flag']} Proxy {idx:02d}", "url": proxy['url']}
+        button = {"text": f"{proxy['flag']} پروکسی #{idx}", "url": proxy['url']}
         row.append(button)
         if len(working_proxies) == 5:
             if len(row) == 2 and len(keyboard_inline) < 2:
@@ -323,6 +331,10 @@ async def job():
     if row:
         keyboard_inline.append(row)
 
+    keyboard_inline.append([
+        {"text": "✨ عضویت در کانال Dickonnect", "url": channel_url}
+    ])
+
     reply_markup = {"inline_keyboard": keyboard_inline}
 
     async with httpx.AsyncClient(timeout=15) as client:
@@ -334,7 +346,7 @@ async def job():
             "reply_markup": reply_markup,
             "disable_web_page_preview": True
         }
-        await client.post(telegram_url, json=payload)
+        await client.post(telegram_url, json.dumps(payload), headers={"Content-Type": "application/json"})
     
     gc.collect()
 
@@ -352,3 +364,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
