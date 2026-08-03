@@ -94,8 +94,11 @@ def get_persian_date_digits(now):
     return f"{jy}/{jm:02d}/{jd:02d}"
 
 async def process_and_translate_with_openrouter(raw_text):
+    # پاک کردن لینک‌ها و آیدی‌های تلگرام از متن خام قبل از پردازش
     raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
-    raw_text_clean = re.sub(r'http\S+', '', raw_text_clean).strip()
+    raw_text_clean = re.sub(r'http\S+', '', raw_text_clean)
+    raw_text_clean = re.sub(r'@\w+', '', raw_text_clean).strip()
+    
     if not raw_text_clean:
         return None
 
@@ -149,13 +152,14 @@ async def process_and_translate_with_openrouter(raw_text):
         print("⚠️ News not related to Iran keywords, ignoring.")
         return None
 
-    # ترجمه روان‌تر با گوگل ترنسلیت و اصلاح ساختار جملات
+    # ترجمه روان‌تر با گوگل ترنسلیت و پاکسازی کامل آیدی‌ها
     try:
         translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
         if translated_text and len(translated_text) > 5:
-            # پاکسازی و مرتب‌سازی جملات برای جلوگیری از به‌هم‌ریختگی ساختار
+            # پاکسازی کامل هرگونه آیدی جامانده یا کاراکتر اضافه
+            translated_text = re.sub(r'@\w+', '', translated_text)
             translated_text = re.sub(r'\s+', ' ', translated_text).strip()
-            # محدود کردن به حداکثر دو جمله کامل برای خوانایی بهتر
+            
             sentences = re.split(r'(?<=[.؟!])\s+', translated_text)
             short_text = " ".join(sentences[:2]).strip()
             
