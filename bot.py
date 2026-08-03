@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import gc
+from deep_translator import GoogleTranslator
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -100,53 +101,61 @@ def get_persian_date_digits(now):
     return f"{jy}/{jm:02d}/{jd:02d}"
 
 async def process_and_translate_with_openrouter(raw_text):
-    if not OPENROUTER_API_KEY:
-        print("❌ OpenRouter API Key is missing!")
+    raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
+    if not raw_text_clean:
         return None
 
-    raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
+    if OPENROUTER_API_KEY:
+        prompt = (
+            "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
+            "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
+            "If it IS related, rewrite it in **simple, direct, and conversational Persian (محاوره‌ای ساده، بدون شوخی، کاملاً بی‌طرف و بدون جانبه‌داری)**. "
+            "Sentence structure rules: "
+            "1. Write the sentence in a natural, fluent, and standard news order (Subject + Verb + Object). Avoid weird word orders or broken phrases. "
+            "2. Never use placeholder words like 'فلانی'. Always use the actual, formal, and commonly accepted Persian equivalents for the names of officials, politicians, organizations, and countries. "
+            "3. For military actions use correct Persian verbs (e.g., 'سرنگون کرد', 'هدف قرار داد', 'حمله کرد') and avoid bizarre literal translations. "
+            "4. Keep it completely neutral, factual, and concise within 1 to 2 short lines. "
+            "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس** and never just 'خلیج'. "
+            "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
+            f"\n\nText: {raw_text_clean}"
+        )
 
-    prompt = (
-        "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
-        "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
-        "If it IS related, rewrite it in **simple, direct, and conversational Persian (محاوره‌ای ساده، بدون شوخی، کاملاً بی‌طرف و بدون جانبه‌داری)**. "
-        "Sentence structure rules: "
-        "1. Write the sentence in a natural, fluent, and standard news order (Subject + Verb + Object). Avoid weird word orders or broken phrases. "
-        "2. Never use placeholder words like 'فلانی'. Always use the actual, formal, and commonly accepted Persian equivalents for the names of officials, politicians, organizations, and countries. "
-        "3. For military actions use correct Persian verbs (e.g., 'سرنگون کرد', 'هدف قرار داد', 'حمله کرد') and avoid bizarre literal translations. "
-        "4. Keep it completely neutral, factual, and concise within 1 to 2 short lines. "
-        "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس** and never just 'خلیج'. "
-        "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
-        f"\n\nText: {raw_text_clean}"
-    )
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com",
+            "X-Title": "Telegram News Bot"
+        }
+        
+        payload = {
+            "model": "openrouter/free",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2
+        }
 
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com",
-        "X-Title": "Telegram News Bot"
-    }
-    
-    payload = {
-        "model": "openrouter/free",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2
-    }
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                    text = data["choices"][0]["message"]["content"].strip().replace('"', '')
+                    if "IGNORE" in text or len(text) < 5:
+                        return None
+                    return text
+                else:
+                    print(f"⚠️ OpenRouter Error Status {response.status_code}, switching to Google Translator fallback.")
+        except Exception as err:
+            print(f"⚠️ OpenRouter Exception: {err}, switching to Google Translator fallback.")
 
+    # --- فال‌بک (Fallback): استفاده از مترجم گوگل در صورت خطای هوش مصنوعی ---
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(url, json=payload, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                text = data["choices"][0]["message"]["content"].strip().replace('"', '')
-                if "IGNORE" in text or len(text) < 5:
-                    return None
-                return text
-            else:
-                print(f"❌ OpenRouter status code: {response.status_code} - {response.text}")
-    except Exception as err:
-        print(f"❌ OpenRouter Error: {err}")
+        translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
+        if translated_text and len(translated_text) > 5:
+            return translated_text
+    except Exception as trans_err:
+        print(f"❌ Google Translator Error: {trans_err}")
+
     return None
 
 async def fetch_telegram_channel_news(channel_username, channel_display_name, sent_history):
@@ -207,7 +216,6 @@ async def get_latest_important_news():
                     "title": chatty_title,
                     "source": candidate["source_name"]
                 }
-    print("⚠️ No relevant news found after checking channels.")
     return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=2):
@@ -258,13 +266,10 @@ async def scrape_proxies():
                                 break
             except:
                 pass
-    print(f"🔍 Scraped {len(found)} raw proxies.")
     return list(found)
 
 async def job():
-    print("🚀 Job started...")
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ Error: BOT_TOKEN or CHAT_ID is missing in environment variables!")
         return
 
     raw_proxies = await scrape_proxies()
@@ -280,15 +285,12 @@ async def job():
                     if len(working_proxies) >= 5:
                         break
 
-    print(f"✅ Found {len(working_proxies)} working proxies.")
     if not working_proxies:
-        print("⚠️ No working proxies available, skipping job.")
         gc.collect()
         return
 
     news = await get_latest_important_news()
     if not news:
-        print("⚠️ No news fetched or translated, skipping job.")
         gc.collect()
         return
 
@@ -345,9 +347,7 @@ async def job():
             "reply_markup": reply_markup,
             "disable_web_page_preview": True
         }
-        res = await client.post(telegram_url, json=payload)
-        print(f"📩 Telegram API Response Status: {res.status_code}")
-        print(f"📩 Telegram API Response Body: {res.text}")
+        await client.post(telegram_url, json=payload)
     
     gc.collect()
 
@@ -355,14 +355,13 @@ async def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
     
-    # اجرای اولیه بلافاصله بعد از روشن شدن برای تست
     asyncio.create_task(job())
 
     while True:
         try:
             await job()
         except Exception as e:
-            print(f"❌ Main Loop Error: {e}")
+            print(f"❌ Error: {e}")
         gc.collect()
         await asyncio.sleep(900)
 
