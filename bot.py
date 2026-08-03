@@ -113,7 +113,9 @@ async def process_and_translate_with_openrouter(raw_text):
         "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
         "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
         "If it IS related, rewrite it in **simple, direct, and conversational Persian (محاوره‌ای ساده، بدون شوخی، کاملاً بی‌طرف و بدون جانبه‌داری)**. "
-        "Style should be like: 'فلانی گفت فلان موضوع' or 'ایران فلان کار را کرد'. Avoid formal literary words, avoid jokes, and keep it completely neutral and factual within 1 to 2 short lines. "
+        "Style rules: Never use placeholder words like 'فلانی'. Always use the actual, formal, and commonly accepted Persian equivalents for the names of officials, politicians, organizations, and countries (e.g., use standard Persian names for foreign leaders/officials instead of raw literal transliterations). "
+        "Avoid formal literary words, avoid jokes, and keep it completely neutral and factual within 1 to 2 short lines. "
+        "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس** and never just 'خلیج'. "
         "CRITICAL: Output ONLY the Persian sentence or the word IGNORE. Do NOT include safety warnings, metadata, or URLs."
         f"\n\nText: {raw_text_clean}"
     )
@@ -249,7 +251,7 @@ async def scrape_proxies():
                         for m in matches:
                             clean_url = m.replace("&amp;", "&")
                             found.add(clean_url)
-                            if len(found) > 20: # کمی بیشتر اسکن می‌کنیم تا ۵ تای سالم پیدا کنیم
+                            if len(found) > 20:
                                 break
             except:
                 pass
@@ -269,7 +271,7 @@ async def job():
                 is_ok, flag = await check_proxy_and_get_country(http_client, server, port)
                 if is_ok:
                     working_proxies.append({"url": p_url, "flag": flag})
-                    if len(working_proxies) >= 5:  # تنظیم شده روی ۵ پروکسی
+                    if len(working_proxies) >= 5:
                         break
 
     if not working_proxies:
@@ -306,7 +308,6 @@ async def job():
     for idx, proxy in enumerate(working_proxies, 1):
         button = {"text": f"{proxy['flag']} Proxy {idx:02d}", "url": proxy['url']}
         row.append(button)
-        # برای ۵ دکمه، الگوی ۲، ۲، ۱ قشنگ‌تر میشه
         if len(working_proxies) == 5:
             if len(row) == 2 and len(keyboard_inline) < 2:
                 keyboard_inline.append(row)
@@ -314,7 +315,7 @@ async def job():
             elif len(row) == 1 and len(keyboard_inline) == 2:
                 keyboard_inline.append(row)
                 row = []
-        else: # حالت پیش‌فرض ۲ تایی برای سایر تعدادها
+        else:
             if len(row) == 2:
                 keyboard_inline.append(row)
                 row = []
