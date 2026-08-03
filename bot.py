@@ -141,7 +141,7 @@ async def process_and_translate_with_openrouter(raw_text):
         except Exception as e:
             print(f"❌ OpenRouter Exception: {e} -> Falling back to Google Translator")
 
-    # اگر OpenRouter خطا داد یا کلید نبود، پشتیبان: فیلتر کلمات کلیدی و ترجمه با گوگل
+    # فیلتر کلمات کلیدی برای ایران
     keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
     text_lower = raw_text_clean.lower()
     
@@ -149,14 +149,17 @@ async def process_and_translate_with_openrouter(raw_text):
         print("⚠️ News not related to Iran keywords, ignoring.")
         return None
 
+    # ترجمه روان‌تر با گوگل ترنسلیت و اصلاح ساختار جملات
     try:
         translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
         if translated_text and len(translated_text) > 5:
-            sentences = [s.strip() for s in re.split(r'[.!?]+\s*', translated_text) if s.strip()]
-            short_text = ". ".join(sentences[:2])
-            if short_text and not short_text.endswith('.'):
-                short_text += "."
-            print(f"🌐 Google Translator Output: {short_text}")
+            # پاکسازی و مرتب‌سازی جملات برای جلوگیری از به‌هم‌ریختگی ساختار
+            translated_text = re.sub(r'\s+', ' ', translated_text).strip()
+            # محدود کردن به حداکثر دو جمله کامل برای خوانایی بهتر
+            sentences = re.split(r'(?<=[.؟!])\s+', translated_text)
+            short_text = " ".join(sentences[:2]).strip()
+            
+            print(f"🌐 Google Translator Cleaned Output: {short_text}")
             return short_text
     except Exception as e:
         print(f"❌ Google Translator Error: {e}")
