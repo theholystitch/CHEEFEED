@@ -17,7 +17,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# لیست کانال‌های منبع برای دریافت پروکسی
 PROXY_CHANNELS = [
     "MTProtoProxies",
     "ProxyMTProto",
@@ -25,7 +24,6 @@ PROXY_CHANNELS = [
     "iMTProto",
 ]
 
-# الگوهای پیدا کردن لینک پروکسی
 PATTERNS = [
     re.compile(r'https://t\.me/proxy\?[^\s<>"]+'),
     re.compile(r'tg://proxy\?[^\s<>"]+'),
@@ -33,7 +31,6 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
-# کانال‌های خبری برای دریافت و ترجمه خبر
 NEWS_CHANNELS = {
     "ClashReport": "Clash Report",
     "Alarabiya_far": "العربیه فارسی",
@@ -45,7 +42,6 @@ NEWS_CHANNELS = {
     "idfofficial": "IDF Official"
 }
 
-# کلمات کلیدی برای حذف اخبار غیرمرتبط
 EXCLUDE_KEYWORDS = [
     "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
     "movie", "wedding", "stadium", "coach", "cup", "wrestling", "fashion", "music"
@@ -105,6 +101,7 @@ def get_persian_date_digits(now):
 
 async def process_and_translate_with_openrouter(raw_text):
     if not OPENROUTER_API_KEY:
+        print("❌ OpenRouter API Key is missing!")
         return None
 
     raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
@@ -146,6 +143,8 @@ async def process_and_translate_with_openrouter(raw_text):
                 if "IGNORE" in text or len(text) < 5:
                     return None
                 return text
+            else:
+                print(f"❌ OpenRouter status code: {response.status_code} - {response.text}")
     except Exception as err:
         print(f"❌ OpenRouter Error: {err}")
     return None
@@ -196,8 +195,8 @@ async def get_latest_important_news():
             chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
             if chatty_title and "Safety" not in chatty_title:
                 sent_history.append(candidate["raw_id"])
-                if len(sent_history) > 30:
-                    sent_history = sent_history[-30:]
+                if len(sent_history) > 200:
+                    sent_history = sent_history[-200:]
                 try:
                     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                         json.dump(sent_history, f, ensure_ascii=False)
@@ -208,6 +207,7 @@ async def get_latest_important_news():
                     "title": chatty_title,
                     "source": candidate["source_name"]
                 }
+    print("⚠️ No relevant news found after checking channels.")
     return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=2):
@@ -258,10 +258,13 @@ async def scrape_proxies():
                                 break
             except:
                 pass
+    print(f"🔍 Scraped {len(found)} raw proxies.")
     return list(found)
 
 async def job():
+    print("🚀 Job started...")
     if not BOT_TOKEN or not CHAT_ID:
+        print("❌ Error: BOT_TOKEN or CHAT_ID is missing in environment variables!")
         return
 
     raw_proxies = await scrape_proxies()
@@ -277,12 +280,15 @@ async def job():
                     if len(working_proxies) >= 5:
                         break
 
+    print(f"✅ Found {len(working_proxies)} working proxies.")
     if not working_proxies:
+        print("⚠️ No working proxies available, skipping job.")
         gc.collect()
         return
 
     news = await get_latest_important_news()
     if not news:
+        print("⚠️ No news fetched or translated, skipping job.")
         gc.collect()
         return
 
@@ -324,7 +330,6 @@ async def job():
     if row:
         keyboard_inline.append(row)
 
-    # اضافه کردن دکمه عضویت در کانال در آخرین ردیف به صورت تمام‌عرض
     keyboard_inline.append([
         {"text": "✨ عضویت در کانال Dickonnect", "url": channel_url}
     ])
@@ -340,7 +345,9 @@ async def job():
             "reply_markup": reply_markup,
             "disable_web_page_preview": True
         }
-        await client.post(telegram_url, json=payload)
+        res = await client.post(telegram_url, json=payload)
+        print(f"📩 Telegram API Response Status: {res.status_code}")
+        print(f"📩 Telegram API Response Body: {res.text}")
     
     gc.collect()
 
@@ -348,14 +355,16 @@ async def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
     
+    # اجرای اولیه بلافاصله بعد از روشن شدن برای تست
+    asyncio.create_task(job())
+
     while True:
         try:
             await job()
         except Exception as e:
-            print(f"❌ Error: {e}")
+            print(f"❌ Main Loop Error: {e}")
         gc.collect()
         await asyncio.sleep(900)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
