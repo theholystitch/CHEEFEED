@@ -101,10 +101,13 @@ def get_persian_date_digits(now):
     return f"{jy}/{jm:02d}/{jd:02d}"
 
 async def process_and_translate_with_openrouter(raw_text):
-    raw_text_clean = re.sub(r'http\S+', '', raw_text).strip()
+    # پاکسازی عبارت‌های اضافی مثل JUST IN, Breaking و لینک‌ها
+    raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
+    raw_text_clean = re.sub(r'http\S+', '', raw_text_clean).strip()
     if not raw_text_clean:
         return None
 
+    # ۱. اولویت با هوش مصنوعی اصلی (OpenRouter)
     if OPENROUTER_API_KEY:
         prompt = (
             "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
@@ -144,17 +147,26 @@ async def process_and_translate_with_openrouter(raw_text):
                         return None
                     return text
                 else:
-                    print(f"⚠️ OpenRouter Error Status {response.status_code}, switching to Google Translator fallback.")
-        except Exception as err:
-            print(f"⚠️ OpenRouter Exception: {err}, switching to Google Translator fallback.")
+                    print("⚠️ OpenRouter error, switching to Google Translator fallback.")
+        except Exception:
+            print("⚠️ OpenRouter exception, switching to Google Translator fallback.")
 
-    # --- فال‌بک (Fallback): استفاده از مترجم گوگل در صورت خطای هوش مصنوعی ---
+    # --- پشتیبان (Fallback) با مترجم گوگل + فیلتر سخت‌گیرانه ایران/اسرائیل ---
+    keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian", "idf", "netanyahu"]
+    text_lower = raw_text_clean.lower()
+    
+    if not any(kw in text_lower for kw in keywords_to_check):
+        return None
+
     try:
         translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
         if translated_text and len(translated_text) > 5:
-            return translated_text
-    except Exception as trans_err:
-        print(f"❌ Google Translator Error: {trans_err}")
+            # محدود کردن طول خبر به حداکثر 2 جمله
+            sentences = re.split(r'[.!?]+\s*', translated_text)
+            short_text = ". ".join(sentences[:2]).strip()
+            return short_text
+    except Exception as e:
+        print(f"❌ Google Translator Error: {e}")
 
     return None
 
@@ -366,4 +378,5 @@ async def main():
         await asyncio.sleep(900)
 
 if __name__ == "__main__":
+    asyncio.run(main())
     asyncio.run(main())
