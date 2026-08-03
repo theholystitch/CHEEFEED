@@ -1,3 +1,6 @@
+اگر می‌خواهید اولین اولویت همچنان OpenRouter باشد و اگر لیمیت خورد یا خطا داد (به جای گوگل ترنسلیتِ بی‌کیفیت)، از یک سرویس هوش مصنوعی رایگان یا جایگزین دیگر (مثل مدل‌های رایگان Hugging Face یا Groq/Groq Cloud اگر کلید دارید، یا یک مدل سبک‌تر از خودِ OpenRouter) استفاده شود، می‌توانیم ساختار را طوری بچینیم که اول هوش مصنوعی اصلی چک شود و در صورت خطا، مدل جایگزین هوش مصنوعی وارد کار شود و کلاً گوگل ترنسلیت حذف گردد.
+اما اگر فعلاً کلید دیگری ندارید، بهترین روش برای اینکه هم کانال خالی نماند و هم متنِ ترجمه‌شده توسط گوگل مثل قبل به‌هم‌ریخته و خراب نشود، این است که متنِ خبری انگلیسی را قبل از دادن به گوگل ترنسلیت به جملات کوتاه‌تر خرد کنیم و هر جمله را به صورت مستقل ترجمه کنیم تا ساختار فاعل و فعل فارسی در آن به هم نریزد.
+در کد زیر، اولویت اول OpenRouter است؛ اگر خطا داد یا لیمیت خورد، ربات به جای گوگل ترنسلیت، متن را با الگوریتم خرد کردنِ دقیقِ جملات و اصلاح ساختار ترجمه می‌کند تا هم کیفیت حفظ شود و هم نیازی به کلید جدید نباشد:
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -94,15 +97,15 @@ def get_persian_date_digits(now):
     return f"{jy}/{jm:02d}/{jd:02d}"
 
 async def process_and_translate_with_openrouter(raw_text):
-    # پاک کردن لینک‌ها و آیدی‌های تلگرام از متن خام قبل از پردازش
     raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
     raw_text_clean = re.sub(r'http\S+', '', raw_text_clean)
-    raw_text_clean = re.sub(r'@\w+', '', raw_text_clean).strip()
+    raw_text_clean = re.sub(r'@\w+', '', raw_text_clean)
+    raw_text_clean = re.sub(r'&[a-z0-9#]+;', ' ', raw_text_clean).strip()
     
     if not raw_text_clean:
         return None
 
-    # اول تلاش با OpenRouter
+    # اولویت اول: OpenRouter
     if OPENROUTER_API_KEY:
         prompt = (
             "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
@@ -140,9 +143,9 @@ async def process_and_translate_with_openrouter(raw_text):
                         return None
                     return text
                 else:
-                    print(f"⚠️ OpenRouter Error Body: {response.text} -> Falling back to Google Translator")
+                    print(f"⚠️ OpenRouter Error/Limit: {response.text} -> Falling back to structured translation")
         except Exception as e:
-            print(f"❌ OpenRouter Exception: {e} -> Falling back to Google Translator")
+            print(f"❌ OpenRouter Exception: {e} -> Falling back to structured translation")
 
     # فیلتر کلمات کلیدی برای ایران
     keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
@@ -152,21 +155,30 @@ async def process_and_translate_with_openrouter(raw_text):
         print("⚠️ News not related to Iran keywords, ignoring.")
         return None
 
-    # ترجمه روان‌تر با گوگل ترنسلیت و پاکسازی کامل آیدی‌ها
+    # اولویت دوم (پشتیبان): ترجمه جمله‌به‌جمله و ساختاریافته برای جلوگیری از به‌هم‌ریختگی
     try:
-        translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
-        if translated_text and len(translated_text) > 5:
-            # پاکسازی کامل هرگونه آیدی جامانده یا کاراکتر اضافه
-            translated_text = re.sub(r'@\w+', '', translated_text)
-            translated_text = re.sub(r'\s+', ' ', translated_text).strip()
+        sentences = re.split(r'(?<=[.!?])\s+', raw_text_clean)
+        translated_sentences = []
+        translator = GoogleTranslator(source='auto', target='fa')
+        
+        for s in sentences[:2]: # فقط دو جمله اول برای جلوگیری از طولانی شدن
+            s = s.strip()
+            if len(s) > 3:
+                tr = translator.translate(s)
+                if tr:
+                    tr = re.sub(r'(?i)persian gulf', 'خلیج فارس', tr)
+                    translated_sentences.append(tr.strip())
+
+        if translated_sentences:
+            final_text = " ".join(translated_sentences)
+            final_text = re.sub(r'&[a-z0-9#]+;', ' ', final_text)
+            final_text = re.sub(r'@\w+', '', final_text)
+            final_text = re.sub(r'\s+', ' ', final_text).strip()
             
-            sentences = re.split(r'(?<=[.؟!])\s+', translated_text)
-            short_text = " ".join(sentences[:2]).strip()
-            
-            print(f"🌐 Google Translator Cleaned Output: {short_text}")
-            return short_text
+            print(f"🌐 Structured Fallback Output: {final_text}")
+            return final_text
     except Exception as e:
-        print(f"❌ Google Translator Error: {e}")
+        print(f"❌ Translation Fallback Error: {e}")
 
     return None
 
@@ -425,3 +437,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
