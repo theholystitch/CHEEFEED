@@ -12,11 +12,14 @@ from urllib.parse import parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import gc
-from deep_translator import GoogleTranslator
+from google import genai
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# راه‌اندازی کلاینت رسمی جمینای
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 PROXY_CHANNELS = [
     "Proxy_Qavi",
@@ -97,90 +100,42 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-async def process_and_translate_with_openrouter(raw_text):
+async def process_single_news_with_gemini(raw_text):
+    # پاکسازی اولیه متن توسط پایتون
     raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
     raw_text_clean = re.sub(r'http\S+', '', raw_text_clean)
     raw_text_clean = re.sub(r'@\w+', '', raw_text_clean)
-    
-    # حذف الگوهای مربوط به نام خبرنگار و محل در انتهای متن (مثل reports ... from ...)
     raw_text_clean = re.sub(r'(?i)\b(reports?|correspondent|by)\s+[A-Z][a-zA-Z\s]+from\s+[A-Z][a-zA-Z\s]+\.?$', '', raw_text_clean)
-    
     raw_text_clean = re.sub(r'&[a-z0-9#]+;', ' ', raw_text_clean).strip()
     
-    if not raw_text_clean:
+    if not raw_text_clean or not gemini_client:
         return None
 
-    if OPENROUTER_API_KEY:
-        prompt = (
-            "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
-            "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
-            "If it IS related, rewrite it in **simple, direct, and concise Persian (محاوره‌ای ساده و خلاصه)**. "
-            "Keep it factual and within 1 to 2 sentences so it's not too long. "
-            "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس**. "
-            "CRITICAL: Output ONLY the Persian sentence or the word IGNORE."
-            f"\n\nText: {raw_text_clean}"
-        )
+    # ارسال خبر انتخاب شده به جمینای
+    prompt = (
+        "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
+        "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
+        "If it IS related, rewrite it in **simple, direct, and concise Persian (محاوره‌ای ساده و خلاصه)**. "
+        "Keep it factual and within 1 to 2 sentences so it's not too long. "
+        "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس**. "
+        "CRITICAL: Output ONLY the Persian sentence or the word IGNORE."
+        f"\n\nText: {raw_text_clean}"
+    )
 
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com",
-            "X-Title": "Telegram News Bot"
-        }
-        
-        payload = {
-            "model": "openrouter/free",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2
-        }
-
+    for attempt in range(3):
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                print(f"🤖 OpenRouter Status: {response.status_code}")
-                if response.status_code == 200:
-                    data = response.json()
-                    text = data["choices"][0]["message"]["content"].strip().replace('"', '')
-                    print(f"🤖 OpenRouter Output: {text}")
-                    if "IGNORE" in text or len(text) < 5:
-                        return None
-                    return text
-                else:
-                    print(f"⚠️ OpenRouter Error/Limit: {response.text} -> Falling back to structured translation")
+            response = gemini_client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+            )
+            text = response.text.strip().replace('"', '')
+            print(f"🤖 Gemini Output: {text}")
+            if "IGNORE" in text or len(text) < 5:
+                return None
+            return text
         except Exception as e:
-            print(f"❌ OpenRouter Exception: {e} -> Falling back to structured translation")
-
-    keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
-    text_lower = raw_text_clean.lower()
-    
-    if not any(kw in text_lower for kw in keywords_to_check):
-        print("⚠️ News not related to Iran keywords, ignoring.")
-        return None
-
-    try:
-        sentences = re.split(r'(?<=[.!?])\s+', raw_text_clean)
-        translated_sentences = []
-        translator = GoogleTranslator(source='auto', target='fa')
-        
-        for s in sentences[:2]:
-            s = s.strip()
-            if len(s) > 3:
-                tr = translator.translate(s)
-                if tr:
-                    tr = re.sub(r'(?i)persian gulf', 'خلیج فارس', tr)
-                    translated_sentences.append(tr.strip())
-
-        if translated_sentences:
-            final_text = " ".join(translated_sentences)
-            final_text = re.sub(r'&[a-z0-9#]+;', ' ', final_text)
-            final_text = re.sub(r'@\w+', '', final_text)
-            final_text = re.sub(r'\s+', ' ', final_text).strip()
-            
-            print(f"🌐 Structured Fallback Output: {final_text}")
-            return final_text
-    except Exception as e:
-        print(f"❌ Translation Fallback Error: {e}")
+            print(f"❌ Gemini Exception (Attempt {attempt+1}): {e}")
+            await asyncio.sleep(5)
 
     return None
 
@@ -207,7 +162,7 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
 
                     raw_id = f"{channel_username}_{clean_text[:30]}"
                     if raw_id not in sent_history:
-                        print(f"📰 Found new news from {channel_display_name}")
+                        print(f"📰 Python selected news candidate from {channel_display_name}")
                         return {
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
@@ -232,8 +187,8 @@ async def get_latest_important_news():
     for username, display_name in channels_list:
         candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
         if candidate:
-            chatty_title = await process_and_translate_with_openrouter(candidate["raw_text"])
-            if chatty_title and "Safety" not in chatty_title:
+            ai_title = await process_single_news_with_gemini(candidate["raw_text"])
+            if ai_title and "Safety" not in ai_title:
                 sent_history.append(candidate["raw_id"])
                 if len(sent_history) > 200:
                     sent_history = sent_history[-200:]
@@ -244,7 +199,7 @@ async def get_latest_important_news():
                     pass
 
                 return {
-                    "title": chatty_title,
+                    "title": ai_title,
                     "source": candidate["source_name"]
                 }
     print("⚠️ No valid news passed filters or all were duplicates.")
@@ -301,8 +256,8 @@ async def scrape_proxies():
 
 async def job():
     print("🚀 Job started...")
-    if not BOT_TOKEN or not CHAT_ID:
-        print("❌ Error: BOT_TOKEN or CHAT_ID is missing!")
+    if not BOT_TOKEN or not CHAT_ID or not GEMINI_API_KEY:
+        print("❌ Error: BOT_TOKEN, CHAT_ID, or GEMINI_API_KEY is missing!")
         return
 
     raw_proxies = await scrape_proxies()
