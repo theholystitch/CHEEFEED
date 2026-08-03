@@ -19,7 +19,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# راه‌اندازی کلاینت رسمی جمینای
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 PROXY_CHANNELS = [
@@ -121,9 +120,8 @@ async def process_single_news_with_gemini(raw_text):
         f"\n\nText: {raw_text_clean}"
     )
 
-    for attempt in range(3):
+    for attempt in range(2):
         try:
-            # استفاده از مدل Flash-Lite برای دور زدن محدودیت سهمیه
             response = gemini_client.models.generate_content(
                 model='gemini-2.5-flash-lite',
                 contents=prompt,
@@ -151,7 +149,8 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 messages = r.text.split('tgme_widget_message_wrap')
-                for message in reversed(messages[-3:]):
+                # فقط آخرین پیام را چک می‌کند تا درگیر پیام‌های قدیمی نشود
+                for message in reversed(messages[-1:]):
                     text_match = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', message, re.DOTALL)
                     if not text_match:
                         continue
@@ -165,7 +164,7 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
 
                     raw_id = f"{channel_username}_{clean_text[:30]}"
                     if raw_id not in sent_history:
-                        print(f"📰 Python selected news candidate from {channel_display_name}")
+                        print(f"📰 Python selected single news candidate from {channel_display_name}")
                         return {
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
@@ -184,28 +183,29 @@ async def get_latest_important_news():
         except:
             sent_history = []
 
+    # فقط یک کانال را به صورت تصادفی برای بررسی انتخاب می‌کند تا درخواست اضافی به جمینای نرود
     channels_list = list(NEWS_CHANNELS.items())
-    random.shuffle(channels_list)
+    username, display_name = random.choice(channels_list)
 
-    for username, display_name in channels_list:
-        candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
-        if candidate:
-            ai_title = await process_single_news_with_gemini(candidate["raw_text"])
-            if ai_title and "Safety" not in ai_title:
-                sent_history.append(candidate["raw_id"])
-                if len(sent_history) > 200:
-                    sent_history = sent_history[-200:]
-                try:
-                    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-                        json.dump(sent_history, f, ensure_ascii=False)
-                except:
-                    pass
+    candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
+    if candidate:
+        ai_title = await process_single_news_with_gemini(candidate["raw_text"])
+        if ai_title and "Safety" not in ai_title:
+            sent_history.append(candidate["raw_id"])
+            if len(sent_history) > 200:
+                sent_history = sent_history[-200:]
+            try:
+                with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                    json.dump(sent_history, f, ensure_ascii=False)
+            except:
+                pass
 
-                return {
-                    "title": ai_title,
-                    "source": candidate["source_name"]
-                }
-    print("⚠️ No valid news passed filters or all were duplicates.")
+            return {
+                "title": ai_title,
+                "source": candidate["source_name"]
+            }
+            
+    print("⚠️ No valid news passed filters in this single check.")
     return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=2):
