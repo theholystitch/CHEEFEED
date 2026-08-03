@@ -111,7 +111,7 @@ async def process_single_news_with_gemini(raw_text):
     if not raw_text_clean or not gemini_client:
         return None
 
-    # ارسال خبر انتخاب شده به جمینای
+    # ارسال خبر انتخاب شده به جمینای با مدل اصلاح‌شده
     prompt = (
         "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
         "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
@@ -125,7 +125,7 @@ async def process_single_news_with_gemini(raw_text):
     for attempt in range(3):
         try:
             response = gemini_client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-2.0-flash',
                 contents=prompt,
             )
             text = response.text.strip().replace('"', '')
