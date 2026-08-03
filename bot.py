@@ -266,6 +266,7 @@ async def scrape_proxies():
 
 async def job():
     if not BOT_TOKEN or not CHAT_ID:
+        print("❌ Error: BOT_TOKEN or CHAT_ID is missing!")
         return
 
     raw_proxies = await scrape_proxies()
@@ -282,11 +283,13 @@ async def job():
                         break
 
     if not working_proxies:
+        print("⚠️ No working proxies found.")
         gc.collect()
         return
 
     news = await get_latest_important_news()
     if not news:
+        print("⚠️ No relevant news found or filtered out.")
         gc.collect()
         return
 
@@ -343,7 +346,8 @@ async def job():
             "reply_markup": reply_markup,
             "disable_web_page_preview": True
         }
-        await client.post(telegram_url, json.dumps(payload), headers={"Content-Type": "application/json"})
+        res = await client.post(telegram_url, json.dumps(payload), headers={"Content-Type": "application/json"})
+        print(f"Telegram API Response: {res.status_code} - {res.text}")
     
     gc.collect()
 
@@ -351,8 +355,8 @@ async def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
     
-    # اجرای اولیه بلافاصله پس از روشن شدن ربات
     try:
+        print("🤖 Bot started, running initial job...")
         await job()
     except Exception as e:
         print(f"❌ Initial Job Error: {e}")
