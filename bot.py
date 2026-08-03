@@ -18,7 +18,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# لیست جدید کانال‌های پروکسی شما
 PROXY_CHANNELS = [
     "Proxy_Qavi",
     "ProxySkull",
@@ -31,7 +30,6 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
-# لیست جدید کانال‌های اخبار شما (حذف IDF و منابع قبلی)
 NEWS_CHANNELS = {
     "persiannbloomberg": "Bloomberg فارسی",
     "presstv": "Press TV",
@@ -129,31 +127,18 @@ async def process_and_translate_with_openrouter(raw_text):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.post(url, json=payload, headers=headers)
+                print(f"🤖 OpenRouter Status: {response.status_code}")
                 if response.status_code == 200:
                     data = response.json()
                     text = data["choices"][0]["message"]["content"].strip().replace('"', '')
+                    print(f"🤖 OpenRouter Output: {text}")
                     if "IGNORE" in text or len(text) < 5:
                         return None
                     return text
-        except Exception:
-            pass
-
-    keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
-    text_lower = raw_text_clean.lower()
-    
-    if not any(kw in text_lower for kw in keywords_to_check):
-        return None
-
-    try:
-        translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
-        if translated_text and len(translated_text) > 5:
-            sentences = [s.strip() for s in re.split(r'[.!?]+\s*', translated_text) if s.strip()]
-            short_text = ". ".join(sentences[:2])
-            if short_text and not short_text.endswith('.'):
-                short_text += "."
-            return short_text
-    except Exception as e:
-        print(f"❌ Google Translator Error: {e}")
+                else:
+                    print(f"⚠️ OpenRouter Error Body: {response.text}")
+        except Exception as e:
+            print(f"❌ OpenRouter Exception: {e}")
 
     return None
 
@@ -187,14 +172,15 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
 
                     raw_id = f"{channel_username}_{clean_text[:30]}"
                     if raw_id not in sent_history:
+                        print(f"📰 Found new news from {channel_display_name}")
                         return {
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
                             "raw_id": raw_id,
-                            "photo_url": photo_url
+                    "photo_url": photo_url
                         }
         except Exception as e:
-            pass
+            print(f"❌ Error fetching channel {channel_username}: {e}")
     return None
 
 async def get_latest_important_news():
@@ -228,6 +214,7 @@ async def get_latest_important_news():
                     "source": candidate["source_name"],
                     "photo_url": candidate.get("photo_url")
                 }
+    print("⚠️ No valid news passed filters or all were duplicates.")
     return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=2):
@@ -274,14 +261,15 @@ async def scrape_proxies():
                         for m in matches:
                             clean_url = m.replace("&amp;", "&")
                             found.add(clean_url)
-                            if len(found) > 20:
-                                break
-            except:
-                pass
+            except Exception as e:
+                print(f"❌ Error scraping proxy channel {ch}: {e}")
+    print(f"🔌 Total proxies found: {len(found)}")
     return list(found)
 
 async def job():
+    print("🚀 Job started...")
     if not BOT_TOKEN or not CHAT_ID:
+        print("❌ Error: BOT_TOKEN or CHAT_ID is missing!")
         return
 
     raw_proxies = await scrape_proxies()
@@ -297,12 +285,15 @@ async def job():
                     if len(working_proxies) >= 5:
                         break
 
+    print(f"🟢 Working proxies found: {len(working_proxies)}")
     if not working_proxies:
+        print("⚠️ No working proxies found, skipping this cycle.")
         gc.collect()
         return
 
     news = await get_latest_important_news()
     if not news:
+        print("⚠️ No news available to send, skipping this cycle.")
         gc.collect()
         return
 
@@ -363,10 +354,13 @@ async def job():
                     "reply_markup": reply_markup
                 }
                 res = await client.post(telegram_url, json=payload)
+                print(f"📤 SendPhoto Telegram status: {res.status_code}")
                 if res.status_code == 200:
                     success = True
-            except:
-                pass
+                else:
+                    print(f"⚠️ SendPhoto Error Response: {res.text}")
+            except Exception as e:
+                print(f"❌ SendPhoto Exception: {e}")
 
         if not success:
             try:
@@ -378,9 +372,12 @@ async def job():
                     "reply_markup": reply_markup,
                     "disable_web_page_preview": True
                 }
-                await client.post(telegram_url, json=payload)
+                res = await client.post(telegram_url, json=payload)
+                print(f"📤 SendMessage Telegram status: {res.status_code}")
+                if res.status_code != 200:
+                    print(f"❌ SendMessage Error Response: {res.text}")
             except Exception as e:
-                print(f"❌ Send Message Error: {e}")
+                print(f"❌ SendMessage Exception: {e}")
     
     gc.collect()
 
@@ -394,7 +391,7 @@ async def main():
         try:
             await job()
         except Exception as e:
-            print(f"❌ Error: {e}")
+            print(f"❌ Main Loop Error: {e}")
         gc.collect()
         await asyncio.sleep(900)
 
