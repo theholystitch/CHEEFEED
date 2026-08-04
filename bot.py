@@ -14,9 +14,20 @@ import threading
 import gc
 from google import genai
 from google.genai.errors import APIError
+from deep_translator import GoogleTranslator
 
+# ==================== متغیرهای محیطی ====================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+
+# کلیدهای API برای ۷ سرویس هوش مصنوعی
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+CLOUDFLARE_API_KEY = os.getenv("CLOUDFLARE_API_KEY")
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -100,14 +111,15 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-async def process_single_news_with_gemini(raw_text):
+# ==================== زنجیره هوش مصنوعی (Failover Pipeline) ====================
+async def process_single_news_with_ai(raw_text):
     raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
     raw_text_clean = re.sub(r'http\S+', '', raw_text_clean)
     raw_text_clean = re.sub(r'@\w+', '', raw_text_clean)
     raw_text_clean = re.sub(r'(?i)\b(reports?|correspondent|by)\s+[A-Z][a-zA-Z\s]+from\s+[A-Z][a-zA-Z\s]+\.?$', '', raw_text_clean)
     raw_text_clean = re.sub(r'&[a-z0-9#]+;', ' ', raw_text_clean).strip()
     
-    if not raw_text_clean or not gemini_client:
+    if not raw_text_clean:
         return None
 
     prompt = (
@@ -120,23 +132,135 @@ async def process_single_news_with_gemini(raw_text):
         f"\n\nText: {raw_text_clean}"
     )
 
-    for attempt in range(2):
+    async with httpx.AsyncClient(timeout=12) as client:
+        
+        # 1. اولویت اول: GROQ
+        if GROQ_API_KEY:
+            try:
+                res = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    json={"model": "deepseek-r1-distill-llama-70b", "messages": [{"role": "user", "content": prompt}], "temperature": 0.2},
+                    headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    text = res.json()["choices"][0]["message"]["content"].strip()
+                    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip().replace('"', '')
+                    if "IGNORE" not in text and len(text) >= 5:
+                        return text
+            except Exception:
+                pass
+
+        # 2. اولویت دوم: DEEPSEEK
+        if DEEPSEEK_API_KEY:
+            try:
+                res = await client.post(
+                    "https://api.deepseek.com/chat/completions",
+                    json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "temperature": 0.2},
+                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    text = res.json()["choices"][0]["message"]["content"].strip().replace('"', '')
+                    if "IGNORE" not in text and len(text) >= 5:
+                        return text
+            except Exception:
+                pass
+
+        # 3. اولویت سوم: OPENROUTER
+        if OPENROUTER_API_KEY:
+            try:
+                res = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    json={"model": "openrouter/free", "messages": [{"role": "user", "content": prompt}], "temperature": 0.2},
+                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json", "HTTP-Referer": "https://github.com", "X-Title": "Telegram Bot"}
+                )
+                if res.status_code == 200:
+                    text = res.json()["choices"][0]["message"]["content"].strip().replace('"', '')
+                    if "IGNORE" not in text and len(text) >= 5:
+                        return text
+            except Exception:
+                pass
+
+        # 4. اولویت چهارم: COHERE
+        if COHERE_API_KEY:
+            try:
+                res = await client.post(
+                    "https://api.cohere.com/v2/chat",
+                    json={"model": "command-r-plus", "messages": [{"role": "user", "content": prompt}]},
+                    headers={"Authorization": f"Bearer {COHERE_API_KEY}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    text = res.json()["message"]["content"][0]["text"].strip().replace('"', '')
+                    if "IGNORE" not in text and len(text) >= 5:
+                        return text
+            except Exception:
+                pass
+
+        # 5. اولویت پنجم: CLOUDFLARE
+        if CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID:
+            try:
+                cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct"
+                res = await client.post(
+                    cf_url,
+                    json={"prompt": prompt},
+                    headers={"Authorization": f"Bearer {CLOUDFLARE_API_KEY}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    text = res.json().get("result", {}).get("response", "").strip().replace('"', '')
+                    if "IGNORE" not in text and len(text) >= 5:
+                        return text
+            except Exception:
+                pass
+
+        # 6. اولویت ششم: HUGGING FACE
+        if HUGGINGFACE_API_KEY:
+            try:
+                hf_url = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct"
+                res = await client.post(
+                    hf_url,
+                    json={"inputs": prompt, "parameters": {"max_new_tokens": 150}},
+                    headers={"Authorization": f"Bearer {HUGGINGFACE_API_KEY}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    text = data[0].get("generated_text", "") if isinstance(data, list) else data.get("generated_text", "")
+                    text = text.replace(prompt, "").strip().replace('"', '')
+                    if "IGNORE" not in text and len(text) >= 5:
+                        return text
+            except Exception:
+                pass
+
+    # 7. اولویت هفتم (آخرین سنگر): GOOGLE GEMINI
+    if gemini_client:
+        for attempt in range(2):
+            try:
+                response = gemini_client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=prompt,
+                )
+                text = response.text.strip().replace('"', '')
+                if "IGNORE" not in text and len(text) >= 5:
+                    return text
+                else:
+                    return None
+            except APIError:
+                await asyncio.sleep(2)
+            except Exception:
+                await asyncio.sleep(2)
+
+    # پشتیبان نهایی سیستم (Google Translate)
+    keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
+    text_lower = raw_text_clean.lower()
+    if any(kw in text_lower for kw in keywords_to_check):
         try:
-            response = gemini_client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt,
-            )
-            text = response.text.strip().replace('"', '')
-            print(f"🤖 Gemini Output: {text}")
-            if "IGNORE" in text or len(text) < 5:
-                return None
-            return text
-        except APIError as e:
-            print(f"❌ Gemini API Error (Attempt {attempt+1}): {e}")
-            await asyncio.sleep(5)
-        except Exception as e:
-            print(f"❌ Gemini Exception (Attempt {attempt+1}): {e}")
-            await asyncio.sleep(5)
+            translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
+            if translated_text and len(translated_text) > 5:
+                sentences = [s.strip() for s in re.split(r'[.!?]+\s*', translated_text) if s.strip()]
+                short_text = ". ".join(sentences[:2])
+                if short_text and not short_text.endswith('.'):
+                    short_text += "."
+                return short_text
+        except:
+            pass
 
     return None
 
@@ -163,14 +287,13 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
 
                     raw_id = f"{channel_username}_{clean_text[:30]}"
                     if raw_id not in sent_history:
-                        print(f"📰 Python selected single news candidate from {channel_display_name}")
                         return {
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
                             "raw_id": raw_id
                         }
-        except Exception as e:
-            print(f"❌ Error fetching channel {channel_username}: {e}")
+        except Exception:
+            pass
     return None
 
 async def get_latest_important_news():
@@ -187,7 +310,7 @@ async def get_latest_important_news():
 
     candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
     if candidate:
-        ai_title = await process_single_news_with_gemini(candidate["raw_text"])
+        ai_title = await process_single_news_with_ai(candidate["raw_text"])
         if ai_title and "Safety" not in ai_title:
             sent_history.append(candidate["raw_id"])
             if len(sent_history) > 200:
@@ -202,8 +325,6 @@ async def get_latest_important_news():
                 "title": ai_title,
                 "source": candidate["source_name"]
             }
-            
-    print("⚠️ No valid news passed filters in this single check.")
     return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=2):
@@ -250,15 +371,12 @@ async def scrape_proxies():
                         for m in matches:
                             clean_url = m.replace("&amp;", "&")
                             found.add(clean_url)
-            except Exception as e:
-                print(f"❌ Error scraping proxy channel {ch}: {e}")
-    print(f"🔌 Total proxies found: {len(found)}")
+            except Exception:
+                pass
     return list(found)
 
 async def job():
-    print("🚀 Job started...")
-    if not BOT_TOKEN or not CHAT_ID or not GEMINI_API_KEY:
-        print("❌ Error: BOT_TOKEN, CHAT_ID, or GEMINI_API_KEY is missing!")
+    if not BOT_TOKEN or not CHAT_ID:
         return
 
     raw_proxies = await scrape_proxies()
@@ -274,15 +392,12 @@ async def job():
                     if len(working_proxies) >= 5:
                         break
 
-    print(f"🟢 Working proxies found: {len(working_proxies)}")
     if not working_proxies:
-        print("⚠️ No working proxies found, skipping this cycle.")
         gc.collect()
         return
 
     news = await get_latest_important_news()
     if not news:
-        print("⚠️ No news available to send, skipping this cycle.")
         gc.collect()
         return
 
@@ -340,12 +455,9 @@ async def job():
                 "reply_markup": reply_markup,
                 "disable_web_page_preview": True
             }
-            res = await client.post(telegram_url, json=payload)
-            print(f"📤 SendMessage Telegram status: {res.status_code}")
-            if res.status_code != 200:
-                print(f"❌ SendMessage Error Response: {res.text}")
-        except Exception as e:
-            print(f"❌ SendMessage Exception: {e}")
+            await client.post(telegram_url, json=payload)
+        except Exception:
+            pass
     
     gc.collect()
 
