@@ -273,7 +273,8 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 messages = r.text.split('tgme_widget_message_wrap')
-                for message in reversed(messages[-1:]):
+                # بررسی ۵ پست آخر به جای فقط ۱ پست آخر
+                for message in reversed(messages[-5:]):
                     text_match = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', message, re.DOTALL)
                     if not text_match:
                         continue
