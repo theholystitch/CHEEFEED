@@ -125,8 +125,10 @@ async def process_single_news_with_ai(raw_text):
     prompt = (
         "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
         "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
-        "If it IS related, rewrite it in **simple, direct, and concise Persian (محاوره‌ای ساده و خلاصه)**. "
-        "Keep it factual and within 1 to 2 sentences so it's not too long. "
+        "If it IS related, rewrite it in **simple spoken Persian (محاوره‌ای ساده و صمیمی)**, exactly like everyday natural speech without being literary. "
+        "STRICT RULE ON TONE: The tone must be completely serious, straightforward, and factual. **NO humor, NO jokes, NO sarcasm, and NO playful phrasing whatsoever** (keep it completely dry and professional, e.g., 'علی رفت اونجا نشست'). "
+        "STRICT RULE ON TITLES: Do NOT use any official titles, honorary prefixes, or government/religious honorifics (such as رهبر, شهید, آیت‌الله, مقام معظم, etc.). Use plain and direct names only (e.g., **علی خامنه‌ای**). "
+        "Keep it within 1 to 2 sentences. "
         "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس**. "
         "CRITICAL: Output ONLY the Persian sentence or the word IGNORE."
         f"\n\nText: {raw_text_clean}"
@@ -273,7 +275,6 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 messages = r.text.split('tgme_widget_message_wrap')
-                # بررسی ۵ پست آخر به جای فقط ۱ پست آخر
                 for message in reversed(messages[-5:]):
                     text_match = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', message, re.DOTALL)
                     if not text_match:
