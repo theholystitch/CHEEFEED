@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import gc
+from urllib.parse import urlparse, parse_qs
 from google import genai
 
 # ==================== متغیرهای محیطی ====================
@@ -37,7 +38,6 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
-# ==================== لیست کامل منابع خبری ====================
 NEWS_CHANNELS = {
     "persiannbloomberg": "Bloomberg فارسی",
     "presstv": "Press TV",
@@ -114,7 +114,6 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-# ==================== پردازش هوش مصنوعی ====================
 async def process_single_news_with_ai(raw_text):
     raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
     raw_text_clean = re.sub(r'http\S+', '', raw_text_clean)
@@ -150,8 +149,10 @@ async def process_single_news_with_ai(raw_text):
                     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip().replace('"', '')
                     if "IGNORE" not in text and len(text) >= 5:
                         return text
-            except Exception:
-                pass
+                else:
+                    print(f"⚠️ Groq API Error: {res.status_code} - {res.text}")
+            except Exception as e:
+                print(f"⚠️ Groq Exception: {e}")
 
         if DEEPSEEK_API_KEY:
             try:
@@ -164,8 +165,10 @@ async def process_single_news_with_ai(raw_text):
                     text = res.json()["choices"][0]["message"]["content"].strip().replace('"', '')
                     if "IGNORE" not in text and len(text) >= 5:
                         return text
-            except Exception:
-                pass
+                else:
+                    print(f"⚠️ DeepSeek API Error: {res.status_code} - {res.text}")
+            except Exception as e:
+                print(f"⚠️ DeepSeek Exception: {e}")
 
         if OPENROUTER_API_KEY:
             try:
@@ -178,8 +181,8 @@ async def process_single_news_with_ai(raw_text):
                     text = res.json()["choices"][0]["message"]["content"].strip().replace('"', '')
                     if "IGNORE" not in text and len(text) >= 5:
                         return text
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"⚠️ OpenRouter Exception: {e}")
 
         if COHERE_API_KEY:
             try:
@@ -192,8 +195,8 @@ async def process_single_news_with_ai(raw_text):
                     text = res.json()["message"]["content"][0]["text"].strip().replace('"', '')
                     if "IGNORE" not in text and len(text) >= 5:
                         return text
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"⚠️ Cohere Exception: {e}")
 
     if gemini_client:
         try:
@@ -204,8 +207,8 @@ async def process_single_news_with_ai(raw_text):
             text = response.text.strip().replace('"', '')
             if "IGNORE" not in text and len(text) >= 5:
                 return text
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Gemini Exception: {e}")
 
     return None
 
@@ -233,13 +236,16 @@ async def fetch_telegram_channel_news(channel_username, channel_display_name, se
 
                     raw_id = f"{channel_username}_{clean_text[:40]}"
                     if raw_id not in sent_history:
+                        print(f"✅ Found raw news from {channel_display_name}")
                         return {
                             "raw_text": clean_text,
                             "source_name": channel_display_name,
                             "raw_id": raw_id
                         }
-        except Exception:
-            pass
+            else:
+                print(f"⚠️ Failed to fetch channel {channel_username}, status: {r.status_code}")
+        except Exception as e:
+            print(f"⚠️ Error fetching channel {channel_username}: {e}")
     return None
 
 async def get_latest_important_news():
@@ -254,12 +260,13 @@ async def get_latest_important_news():
     channels_list = list(NEWS_CHANNELS.items())
     random.shuffle(channels_list)
 
-    # بررسی تک‌تک کانال‌ها تا پیدا کردن اولین خبر معتبر و مرتبط بدون معطلی
     for username, display_name in channels_list:
         candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
         if candidate:
+            print(f"🤖 Processing news with AI from: {display_name}")
             ai_title = await process_single_news_with_ai(candidate["raw_text"])
             if ai_title and "Safety" not in ai_title:
+                print(f"✨ AI Approved news: {ai_title}")
                 sent_history.append(candidate["raw_id"])
                 if len(sent_history) > 300:
                     sent_history = sent_history[-300:]
@@ -273,6 +280,9 @@ async def get_latest_important_news():
                     "title": ai_title,
                     "source": candidate["source_name"]
                 }
+            else:
+                print(f"🚫 AI Ignored or filtered out the news from {display_name}")
+    print("⚠️ No valid news found from any channel in this cycle.")
     return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=2):
@@ -319,12 +329,15 @@ async def scrape_proxies():
                         for m in matches:
                             clean_url = m.replace("&amp;", "&")
                             found.add(clean_url)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"⚠️ Error scraping proxies from {ch}: {e}")
+    print(f"🔌 Total unique proxies found: {len(found)}")
     return list(found)
 
 async def job():
+    print("🚀 Job started: Checking proxies and news...")
     if not BOT_TOKEN or not CHAT_ID:
+        print("❌ ERROR: BOT_TOKEN or CHAT_ID is missing!")
         return
 
     raw_proxies = await scrape_proxies()
@@ -340,12 +353,15 @@ async def job():
                     if len(working_proxies) >= 5:
                         break
 
+    print(f"⚡ Working proxies found: {len(working_proxies)}")
     if not working_proxies:
+        print("⚠️ No working proxies found, skipping this cycle.")
         gc.collect()
         return
 
     news = await get_latest_important_news()
     if not news:
+        print("⚠️ No news available to send in this cycle.")
         gc.collect()
         return
 
@@ -403,9 +419,13 @@ async def job():
                 "reply_markup": reply_markup,
                 "disable_web_page_preview": True
             }
-            await client.post(telegram_url, json=payload)
-        except Exception:
-            pass
+            res = await client.post(telegram_url, json=payload)
+            if res.status_code == 200:
+                print("🎉 Message successfully sent to Telegram channel!")
+            else:
+                print(f"❌ Failed to send message to Telegram: {res.status_code} - {res.text}")
+        except Exception as e:
+            print(f"❌ Exception while sending message to Telegram: {e}")
     
     gc.collect()
 
