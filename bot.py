@@ -8,26 +8,19 @@ import random
 import httpx
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from urllib.parse import parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import gc
 from google import genai
-from google.genai.errors import APIError
-from deep_translator import GoogleTranslator
 
 # ==================== متغیرهای محیطی ====================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# کلیدهای API برای ۷ سرویس هوش مصنوعی
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
-CLOUDFLARE_API_KEY = os.getenv("CLOUDFLARE_API_KEY")
-CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -44,6 +37,7 @@ PATTERNS = [
     re.compile(r'tg://socks\?[^\s<>"]+'),
 ]
 
+# ==================== لیست کامل منابع خبری ====================
 NEWS_CHANNELS = {
     "persiannbloomberg": "Bloomberg فارسی",
     "presstv": "Press TV",
@@ -51,11 +45,20 @@ NEWS_CHANNELS = {
     "farsna": "فارس",
     "Tasnimnews": "تسنیم",
     "abdimedianet": "عبدی مدیا",
-    "SharghDaily": "شرق"
+    "SharghDaily": "شرق",
+    "euronewspe": "یورونیوز فارسی",
+    "dw_farsi": "دویچه وله",
+    "farsivoa": "صدای آمریکا",
+    "entekhab_ir": "پایگاه خبری انتخاب",
+    "Indypersian": "ایندیپندنت فارسی",
+    "sahamnewsorg": "سهام نیوز",
+    "radiofarda": "رادیو فردا",
+    "hammihanonline": "روزنامه هم‌میهن",
+    "EpochTimesPersian": "اپک تایمز"
 }
 
 EXCLUDE_KEYWORDS = [
-    "football", "soccer", "fifa", "match", "league", "actor", "cinema", 
+    "football", "soccer", "fifa", "match", "league", "actor", "cinema",
     "movie", "wedding", "stadium", "coach", "cup", "wrestling", "fashion", "music"
 ]
 
@@ -111,32 +114,30 @@ def get_persian_date_digits(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     return f"{jy}/{jm:02d}/{jd:02d}"
 
-# ==================== زنجیره هوش مصنوعی (Failover Pipeline) ====================
+# ==================== پردازش هوش مصنوعی ====================
 async def process_single_news_with_ai(raw_text):
     raw_text_clean = re.sub(r'(?i)\b(just in|breaking|update):\s*', '', raw_text)
     raw_text_clean = re.sub(r'http\S+', '', raw_text_clean)
     raw_text_clean = re.sub(r'@\w+', '', raw_text_clean)
-    raw_text_clean = re.sub(r'(?i)\b(reports?|correspondent|by)\s+[A-Z][a-zA-Z\s]+from\s+[A-Z][a-zA-Z\s]+\.?$', '', raw_text_clean)
     raw_text_clean = re.sub(r'&[a-z0-9#]+;', ' ', raw_text_clean).strip()
     
     if not raw_text_clean:
         return None
 
     prompt = (
-        "Analyze this news. FIRST, check if it is directly and primarily about **Iran** (or actions, attacks, threats, and negotiations involving Iran with the USA or Israel). "
-        "If it is NOT primarily about Iran, reply with the exact word: IGNORE. "
-        "If it IS related, rewrite it in **simple spoken Persian (محاوره‌ای ساده و صمیمی)**, exactly like everyday natural speech without being literary. "
-        "STRICT RULE ON TONE: The tone must be completely serious, straightforward, and factual. **NO humor, NO jokes, NO sarcasm, and NO playful phrasing whatsoever** (keep it completely dry and professional, e.g., 'علی رفت اونجا نشست'). "
-        "STRICT RULE ON TITLES: Do NOT use any official titles, honorary prefixes, or government/religious honorifics (such as رهبر, شهید, آیت‌الله, مقام معظم, etc.). Use plain and direct names only (e.g., **علی خامنه‌ای**). "
-        "Keep it within 1 to 2 sentences. "
-        "CRITICAL: If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس**. "
-        "CRITICAL: Output ONLY the Persian sentence or the word IGNORE."
+        "Analyze this news. FIRST, check if it is directly and primarily about shared news between **Iran and America**, **Iran and Israel**, or general events/wars involving **Iran**. "
+        "If it is NOT related to these specific topics, reply with the exact word: IGNORE. "
+        "If it IS related, follow these rules strictly:\n"
+        "1. **Speaker Format:** If the news is a direct quote or statement from a specific person/official, format it strictly as: **نام شخص: متن خبر** (e.g., وزیر خارجه: متن). If it is a general report without a specific speaker, write just the **متن خبر** without any prefix. "
+        "2. **Water Body Rule:** If you mention the Persian Gulf, you MUST write it fully and correctly as **خلیج فارس**. "
+        "3. **Tone & Style:** Conversational, fluent, serious, and standard Persian (محاوره‌ای روان، جدی و با جمله‌بندی درست و استاندارد). No humor, jokes, or sarcasm. "
+        "4. **Titles:** Do NOT use religious or restrictive honorifics; use clean direct names or standard job titles (e.g., وزیر خارجه, رئیس‌جمهور). "
+        "5. **Length:** Keep it short. Prioritize a single line (تك‌خطی). If more detail is needed, use maximum 2 sentences. Ensure it is complete and clear, not cut off.\n"
+        "CRITICAL: Output ONLY the final formatted Persian text or the word IGNORE."
         f"\n\nText: {raw_text_clean}"
     )
 
     async with httpx.AsyncClient(timeout=12) as client:
-        
-        # 1. اولویت اول: GROQ
         if GROQ_API_KEY:
             try:
                 res = await client.post(
@@ -152,7 +153,6 @@ async def process_single_news_with_ai(raw_text):
             except Exception:
                 pass
 
-        # 2. اولویت دوم: DEEPSEEK
         if DEEPSEEK_API_KEY:
             try:
                 res = await client.post(
@@ -167,7 +167,6 @@ async def process_single_news_with_ai(raw_text):
             except Exception:
                 pass
 
-        # 3. اولویت سوم: OPENROUTER
         if OPENROUTER_API_KEY:
             try:
                 res = await client.post(
@@ -182,7 +181,6 @@ async def process_single_news_with_ai(raw_text):
             except Exception:
                 pass
 
-        # 4. اولویت چهارم: COHERE
         if COHERE_API_KEY:
             try:
                 res = await client.post(
@@ -197,97 +195,43 @@ async def process_single_news_with_ai(raw_text):
             except Exception:
                 pass
 
-        # 5. اولویت پنجم: CLOUDFLARE
-        if CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID:
-            try:
-                cf_url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct"
-                res = await client.post(
-                    cf_url,
-                    json={"prompt": prompt},
-                    headers={"Authorization": f"Bearer {CLOUDFLARE_API_KEY}", "Content-Type": "application/json"}
-                )
-                if res.status_code == 200:
-                    text = res.json().get("result", {}).get("response", "").strip().replace('"', '')
-                    if "IGNORE" not in text and len(text) >= 5:
-                        return text
-            except Exception:
-                pass
-
-        # 6. اولویت ششم: HUGGING FACE
-        if HUGGINGFACE_API_KEY:
-            try:
-                hf_url = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct"
-                res = await client.post(
-                    hf_url,
-                    json={"inputs": prompt, "parameters": {"max_new_tokens": 150}},
-                    headers={"Authorization": f"Bearer {HUGGINGFACE_API_KEY}", "Content-Type": "application/json"}
-                )
-                if res.status_code == 200:
-                    data = res.json()
-                    text = data[0].get("generated_text", "") if isinstance(data, list) else data.get("generated_text", "")
-                    text = text.replace(prompt, "").strip().replace('"', '')
-                    if "IGNORE" not in text and len(text) >= 5:
-                        return text
-            except Exception:
-                pass
-
-    # 7. اولویت هفتم (آخرین سنگر): GOOGLE GEMINI
     if gemini_client:
-        for attempt in range(2):
-            try:
-                response = gemini_client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=prompt,
-                )
-                text = response.text.strip().replace('"', '')
-                if "IGNORE" not in text and len(text) >= 5:
-                    return text
-                else:
-                    return None
-            except APIError:
-                await asyncio.sleep(2)
-            except Exception:
-                await asyncio.sleep(2)
-
-    # پشتیبان نهایی سیستم (Google Translate)
-    keywords_to_check = ["iran", "tehran", "israel", "usa", "us ", "america", "persian"]
-    text_lower = raw_text_clean.lower()
-    if any(kw in text_lower for kw in keywords_to_check):
         try:
-            translated_text = GoogleTranslator(source='auto', target='fa').translate(raw_text_clean)
-            if translated_text and len(translated_text) > 5:
-                sentences = [s.strip() for s in re.split(r'[.!?]+\s*', translated_text) if s.strip()]
-                short_text = ". ".join(sentences[:2])
-                if short_text and not short_text.endswith('.'):
-                    short_text += "."
-                return short_text
-        except:
+            response = gemini_client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt,
+            )
+            text = response.text.strip().replace('"', '')
+            if "IGNORE" not in text and len(text) >= 5:
+                return text
+        except Exception:
             pass
 
     return None
 
 async def fetch_telegram_channel_news(channel_username, channel_display_name, sent_history):
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     url = f"https://t.me/s/{channel_username}"
 
-    async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
         try:
             r = await client.get(url, headers=headers)
             if r.status_code == 200:
                 messages = r.text.split('tgme_widget_message_wrap')
-                for message in reversed(messages[-5:]):
+                for message in reversed(messages[-8:]):
                     text_match = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', message, re.DOTALL)
                     if not text_match:
                         continue
                     
                     clean_text = re.sub(r'<[^>]+>', ' ', text_match.group(1)).strip()
                     clean_text = re.sub(r'\s+', ' ', clean_text)
-                    if not clean_text or len(clean_text) < 15:
+                    
+                    if not clean_text or len(clean_text) < 20:
                         continue
                     if any(ex in clean_text.lower() for ex in EXCLUDE_KEYWORDS):
                         continue
 
-                    raw_id = f"{channel_username}_{clean_text[:30]}"
+                    raw_id = f"{channel_username}_{clean_text[:40]}"
                     if raw_id not in sent_history:
                         return {
                             "raw_text": clean_text,
@@ -308,25 +252,27 @@ async def get_latest_important_news():
             sent_history = []
 
     channels_list = list(NEWS_CHANNELS.items())
-    username, display_name = random.choice(channels_list)
+    random.shuffle(channels_list)
 
-    candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
-    if candidate:
-        ai_title = await process_single_news_with_ai(candidate["raw_text"])
-        if ai_title and "Safety" not in ai_title:
-            sent_history.append(candidate["raw_id"])
-            if len(sent_history) > 200:
-                sent_history = sent_history[-200:]
-            try:
-                with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-                    json.dump(sent_history, f, ensure_ascii=False)
-            except:
-                pass
+    # بررسی تک‌تک کانال‌ها تا پیدا کردن اولین خبر معتبر و مرتبط بدون معطلی
+    for username, display_name in channels_list:
+        candidate = await fetch_telegram_channel_news(username, display_name, sent_history)
+        if candidate:
+            ai_title = await process_single_news_with_ai(candidate["raw_text"])
+            if ai_title and "Safety" not in ai_title:
+                sent_history.append(candidate["raw_id"])
+                if len(sent_history) > 300:
+                    sent_history = sent_history[-300:]
+                try:
+                    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                        json.dump(sent_history, f, ensure_ascii=False)
+                except:
+                    pass
 
-            return {
-                "title": ai_title,
-                "source": candidate["source_name"]
-            }
+                return {
+                    "title": ai_title,
+                    "source": candidate["source_name"]
+                }
     return None
 
 async def check_proxy_and_get_country(client, host, port, timeout=2):
